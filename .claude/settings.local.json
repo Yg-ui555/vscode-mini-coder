@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(node -e \"console.log\\('Node works'\\); console.log\\(process.version\\)\")",
+      "Bash(node out/extension.js)"
+    ]
+  }
+}

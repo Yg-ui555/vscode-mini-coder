@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vscode-mini-coder · Vision — 完成后的样子</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #f7f5f0;
+    --card: #ffffff;
+    --line: #e9e3d6;
+    --line-soft: #efe9db;
+    --ink: #14171e;
+    --ink-2: #3a4256;
+    --muted: #7c7a72;
+    --primary: #c97b3f;
+    --primary-soft: rgba(201, 123, 63, 0.08);
+    --green: #2f6f5e;
+    --green-soft: rgba(47, 111, 94, 0.08);
+    --rose: #b06367;
+    --rose-soft: rgba(176, 99, 103, 0.08);
+    --slate: #2a3142;
+    --slate-light: #3a4256;
+    --code-bg: #1f2433;
+    --code-line: #2a3142;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 两角微渐变 */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -100px;
+    right: -100px;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, var(--primary-soft), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -100px;
+    left: -100px;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, var(--green-soft), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 32px 80px;
+  }
+
+  /* ========== Hero ========== */
+  .hero {
+    padding: 48px 0 80px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 64px;
+  }
+  .hero-tag {
+    display: inline-block;
+    padding: 6px 14px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 56px;
+    line-height: 1.1;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin-bottom: 20px;
+    max-width: 760px;
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--primary);
+  }
+  .hero-sub {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 640px;
+    margin-bottom: 32px;
+  }
+  .hero-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 24px 0;
+  }
+  .hero-stat {
+    padding: 0 24px;
+    border-right: 1px solid var(--line);
+  }
+  .hero-stat:last-child { border-right: none; }
+  .hero-stat-num {
+    font-family: 'DM Serif Display', serif;
+    font-size: 36px;
+    color: var(--primary);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .hero-stat-label {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* ========== Section ========== */
+  section {
+    margin-bottom: 80px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--primary);
+    font-weight: 500;
+  }
+  .section-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 32px;
+    line-height: 1.2;
+    font-weight: 400;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .section-desc {
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 32px;
+    max-width: 680px;
+  }
+
+  /* ========== VS Code Mock ========== */
+  .vscode-mock {
+    background: #1e1e1e;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px -8px rgba(20, 23, 30, 0.25), 0 0 0 1px rgba(0,0,0,0.06);
+    font-family: 'Outfit', sans-serif;
+    color: #d4d4d4;
+    font-size: 13px;
+    line-height: 1.5;
+    display: grid;
+    grid-template-columns: 200px 1fr 360px;
+    grid-template-rows: 36px 1fr 24px;
+    height: 480px;
+  }
+  .mock-titlebar {
+    grid-column: 1 / -1;
+    background: #3c3c3c;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    border-bottom: 1px solid #2d2d2d;
+  }
+  .mock-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .mock-dot.red { background: #ff5f57; }
+  .mock-dot.yel { background: #febc2e; }
+  .mock-dot.grn { background: #28c840; }
+  .mock-titlebar span {
+    font-size: 12px;
+    color: #cccccc;
+    margin-left: 12px;
+  }
+  .mock-sidebar {
+    background: #252526;
+    border-right: 1px solid #1e1e1e;
+    padding: 12px 0;
+    overflow-y: auto;
+  }
+  .mock-sidebar h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #969696;
+    padding: 4px 16px;
+    margin: 8px 0 4px;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .mock-file {
+    padding: 3px 16px 3px 24px;
+    font-size: 13px;
+    color: #cccccc;
+    cursor: default;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .mock-file.active {
+    background: #37373d;
+    color: #ffffff;
+  }
+  .mock-file .icon {
+    color: #519aba;
+    margin-right: 6px;
+    font-size: 11px;
+  }
+  .mock-file.active .icon { color: #ffffff; }
+
+  .mock-editor {
+    background: #1e1e1e;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .mock-tabs {
+    display: flex;
+    background: #252526;
+    border-bottom: 1px solid #1e1e1e;
+  }
+  .mock-tab {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #969696;
+    border-right: 1px solid #1e1e1e;
+    background: #2d2d2d;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .mock-tab.active {
+    background: #1e1e1e;
+    color: #ffffff;
+  }
+  .mock-tab .icon {
+    color: #519aba;
+    margin-right: 6px;
+  }
+  .mock-code {
+    flex: 1;
+    padding: 12px 16px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #d4d4d4;
+  }
+  .mock-line {
+    display: flex;
+    gap: 16px;
+  }
+  .mock-lineno {
+    color: #6b6b6b;
+    width: 24px;
+    text-align: right;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .mock-linetext { white-space: pre; }
+  .mock-line.added { background: rgba(46, 160, 67, 0.15); }
+  .mock-line.removed { background: rgba(248, 81, 73, 0.15); }
+  .mock-line.added .mock-linetext::before { content: '+ '; color: #3fb950; }
+  .mock-line.removed .mock-linetext::before { content: '- '; color: #f85149; }
+
+  .k-kw { color: #569cd6; }
+  .k-fn { color: #dcdcaa; }
+  .k-str { color: #ce9178; }
+  .k-com { color: #6a9955; font-style: italic; }
+  .k-num { color: #b5cea8; }
+
+  /* 右侧 Webview */
+  .mock-webview {
+    background: #1e1e1e;
+    border-left: 1px solid #2d2d2d;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .mock-wv-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid #2d2d2d;
+    font-size: 13px;
+    color: #ffffff;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mock-wv-head svg { color: var(--primary); }
+  .mock-wv-messages {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .mock-msg {
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+  }
+  .mock-msg.user {
+    background: #2d2d2d;
+    border-left: 2px solid #519aba;
+  }
+  .mock-msg.assistant {
+    background: #252526;
+    border-left: 2px solid var(--primary);
+  }
+  .mock-msg.tool {
+    background: rgba(47, 111, 94, 0.15);
+    border-left: 2px solid #2f6f5e;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: #a8c8b9;
+  }
+  .mock-msg.tool-result {
+    background: rgba(176, 99, 103, 0.12);
+    border-left: 2px solid #b06367;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: #d4a8ac;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .mock-msg .role {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #969696;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .mock-msg.user .role { color: #519aba; }
+  .mock-msg.assistant .role { color: var(--primary); }
+  .mock-msg.tool .role { color: #2f6f5e; }
+  .mock-msg.tool-result .role { color: #b06367; }
+  .mock-wv-input {
+    border-top: 1px solid #2d2d2d;
+    padding: 10px 12px;
+    display: flex;
+    gap: 8px;
+  }
+  .mock-wv-input input {
+    flex: 1;
+    background: #3c3c3c;
+    border: 1px solid #3c3c3c;
+    color: #cccccc;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    outline: none;
+  }
+  .mock-wv-input button {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: default;
+    font-weight: 600;
+  }
+  .mock-statusbar {
+    grid-column: 1 / -1;
+    background: #007acc;
+    color: white;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    gap: 16px;
+  }
+  .mock-statusbar .item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 模拟流式光标 */
+  .mock-cursor {
+    display: inline-block;
+    width: 6px;
+    height: 13px;
+    background: var(--primary);
+    vertical-align: text-bottom;
+    animation: blink 1s steps(2) infinite;
+    margin-left: 1px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ========== Bench (不同化对比) ========== */
+  .bench-section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .bench-section h3 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 22px;
+    margin-bottom: 8px;
+    font-weight: 400;
+  }
+  .bench-section .sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .bench { display: grid; grid-template-columns: 200px 1fr 70px; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+  .bench:first-of-type { border-top: none; }
+  .bench-label { font-size: 14px; font-weight: 500; color: var(--ink-2); }
+  .bench-track { height: 18px; background: var(--line-soft); border-radius: 6px; overflow: hidden; }
+  .bench-fill { height: 100%; border-radius: 6px; transition: width 0.6s; }
+  .bench-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); text-align: right; }
+
+  /* ========== Differentiators grid ========== */
+  .diff-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .diff-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.2s;
+  }
+  .diff-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -4px rgba(20, 23, 30, 0.08);
+  }
+  .diff-card .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--primary);
+    margin-bottom: 8px;
+  }
+  .diff-card h4 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .diff-card p {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .diff-card .icon {
+    width: 28px;
+    height: 28px;
+    margin-bottom: 12px;
+    color: var(--primary);
+  }
+
+  /* ========== Workflow timeline ========== */
+  .workflow {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    overflow: hidden;
+  }
+  .step {
+    padding: 0 16px;
+    border-right: 1px dashed var(--line);
+  }
+  .step:last-child { border-right: none; }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--primary);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .step h5 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .step p {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ========== Architecture SVG ========== */
+  .arch-wrap {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 32px;
+  }
+
+  /* ========== Roadmap timeline ========== */
+  .roadmap {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    position: relative;
+  }
+  .roadmap::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background: var(--primary);
+    opacity: 0.3;
+  }
+  .roadmap li {
+    position: relative;
+    padding: 0 0 28px 40px;
+  }
+  .roadmap li::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 2px solid var(--primary);
+  }
+  .roadmap li.done::before {
+    background: var(--primary);
+  }
+  .roadmap-week {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .roadmap h4 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .roadmap p {
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .roadmap .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 100px;
+    margin-right: 6px;
+    font-weight: 500;
+  }
+  .roadmap .tag.done {
+    background: var(--green-soft);
+    color: var(--green);
+  }
+  .roadmap .tag.now {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+  .roadmap .tag.next {
+    background: var(--rose-soft);
+    color: var(--rose);
+  }
+
+  /* ========== Big quote ========== */
+  .quote-block {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--primary);
+    border-radius: 0 12px 12px 0;
+    padding: 28px 32px;
+    margin: 24px 0;
+  }
+  .quote-block blockquote {
+    font-family: 'DM Serif Display', serif;
+    font-size: 24px;
+    line-height: 1.4;
+    color: var(--ink);
+    font-style: italic;
+    margin-bottom: 12px;
+  }
+  .quote-block cite {
+    font-style: normal;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* ========== Final CTA ========== */
+  .cta {
+    background: var(--ink);
+    color: white;
+    border-radius: 16px;
+    padding: 48px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .cta::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 60%;
+    height: 200%;
+    background: radial-gradient(circle, var(--primary-soft), transparent 70%);
+  }
+  .cta h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 36px;
+    font-weight: 400;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .cta p {
+    color: rgba(255,255,255,0.7);
+    font-size: 15px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .cta .marketplace-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: var(--primary);
+    color: white;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    position: relative;
+    transition: transform 0.2s;
+  }
+  .cta .marketplace-btn:hover {
+    transform: translateY(-1px);
+  }
+
+  /* ========== Responsive ========== */
+  @media (max-width: 900px) {
+    .hero h1 { font-size: 40px; }
+    .hero-stats { grid-template-columns: repeat(2, 1fr); }
+    .hero-stat:nth-child(2) { border-right: none; }
+    .hero-stat:nth-child(1), .hero-stat:nth-child(2) { border-bottom: 1px solid var(--line); }
+    .vscode-mock { grid-template-columns: 1fr; height: auto; }
+    .mock-sidebar { display: none; }
+    .mock-webview { border-left: none; border-top: 1px solid #2d2d2d; height: 360px; }
+    .diff-grid { grid-template-columns: repeat(2, 1fr); }
+    .workflow { grid-template-columns: 1fr; }
+    .step { border-right: none; border-bottom: 1px dashed var(--line); padding: 0 0 16px; margin-bottom: 16px; }
+    .step:last-child { border-bottom: none; }
+    .bench { grid-template-columns: 1fr; gap: 6px; }
+    .bench-val { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ========== HERO ========== -->
+<section class="hero">
+  <span class="hero-tag">Vision · 12 周路线图</span>
+  <h1>未来的 <em>vscode-mini-coder</em>，<br>大概是这样的。</h1>
+  <p class="hero-sub">
+    一个 5MB 的 VS Code 扩展，让"AI 改代码"从"对话→复制→粘贴"变成"保存即完成"。
+    不抢你的命令面板，不偷你的 API Key，每个月帮你省下 30 小时。
+  </p>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-num">8</div>
+      <div class="hero-stat-label">个差异化能力</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">0</div>
+      <div class="hero-stat-label">元内置费用（BYOK）</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">12w</div>
+      <div class="hero-stat-label">从代码到上线</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">5k+</div>
+      <div class="hero-stat-label">预期首月下载</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 1: 自然语言任务 ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">01 /</span>
+    <span class="section-num">对话</span>
+  </div>
+  <h2 class="section-title">你说一句，它跑完整套工具。</h2>
+  <p class="section-desc">
+    不用记命令、不用查文档。在 Webview 里说一句人话，Mini-Coder 自己决定：
+    先 read_file 看懂代码 → apply_patch 改 → run_shell 验证。
+    每一调用你都能在右侧实时看到。
+  </p>
+
+  <div class="vscode-mock">
+    <div class="mock-titlebar">
+      <span class="mock-dot red"></span>
+      <span class="mock-dot yel"></span>
+      <span class="mock-dot grn"></span>
+      <span>utils.py — wxu-multimodal-smart-agent</span>
+    </div>
+
+    <div class="mock-sidebar">
+      <h4>资源管理器</h4>
+      <div class="mock-file"><span class="icon">🐍</span>utils.py</div>
+      <div class="mock-file active"><span class="icon">🐍</span>vector_store.py</div>
+      <div class="mock-file"><span class="icon">🐍</span>rag.py</div>
+      <div class="mock-file"><span class="icon">⚙️</span>config.py</div>
+      <h4>测试</h4>
+      <div class="mock-file"><span class="icon">🐍</span>test_vector.py</div>
+    </div>
+
+    <div class="mock-editor">
+      <div class="mock-tabs">
+        <div class="mock-tab active"><span class="icon">🐍</span>vector_store.py</div>
+        <div class="mock-tab"><span class="icon">🐍</span>utils.py</div>
+      </div>
+      <div class="mock-code">
+        <div class="mock-line"><span class="mock-lineno">1</span><span class="mock-linetext"><span class="k-kw">from</span> sentence_transformers <span class="k-kw">import</span> SentenceTransformer</span></div>
+        <div class="mock-line"><span class="mock-lineno">2</span><span class="mock-linetext"><span class="k-kw">import</span> numpy <span class="k-kw">as</span> np</span></div>
+        <div class="mock-line"><span class="mock-lineno">3</span><span class="mock-linetext"></span></div>
+        <div class="mock-line"><span class="mock-lineno">4</span><span class="mock-linetext"><span class="k-kw">class</span> <span class="k-fn">VectorStore</span>:</span></div>
+        <div class="mock-line"><span class="mock-lineno">5</span><span class="mock-linetext">    <span class="k-kw">def</span> <span class="k-fn">__init__</span>(self, model_name=<span class="k-str">'bge-m3'</span>):</span></div>
+        <div class="mock-line"><span class="mock-lineno">6</span><span class="mock-linetext">        self.encoder = SentenceTransformer(model_name)</span></div>
+        <div class="mock-line"><span class="mock-lineno">7</span><span class="mock-linetext">        self.vectors = []</span></div>
+        <div class="mock-line"><span class="mock-lineno">8</span><span class="mock-linetext"></span></div>
+        <div class="mock-line"><span class="mock-lineno">9</span><span class="mock-linetext">    <span class="k-kw">def</span> <span class="k-fn">add</span>(self, vec):</span></div>
+        <div class="mock-line removed"><span class="mock-lineno">10</span><span class="mock-linetext">self.vectors.append(vec)</span></div>
+        <div class="mock-line added"><span class="mock-lineno">10</span><span class="mock-linetext">self.vectors.append(vec.astype(<span class="k-str">'float32'</span>))</span></div>
+        <div class="mock-line"><span class="mock-lineno">11</span><span class="mock-linetext"></span></div>
+        <div class="mock-line added"><span class="mock-lineno">12</span><span class="mock-linetext"><span class="k-kw">def</span> <span class="k-fn">batch_add</span>(self, vecs):</span></div>
+        <div class="mock-line added"><span class="mock-lineno">13</span><span class="mock-linetext">self.vectors.extend(vecs.astype(<span class="k-str">'float32'</span>))</span></div>
+      </div>
+    </div>
+
+    <div class="mock-webview">
+      <div class="mock-wv-head">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Mini-Coder Chat
+      </div>
+      <div class="mock-wv-messages">
+        <div class="mock-msg user">
+          <div class="role">你</div>
+          重构 vector_store.py 的 add 方法，加 batch_add 方法支持批量向量，要做类型转换避免 numpy 警告
+        </div>
+        <div class="mock-msg assistant">
+          <div class="role">Mini-Coder</div>
+          好的，我看一下当前的实现。
+        </div>
+        <div class="mock-msg tool">
+          <div class="role">🔧 工具调用</div>
+          read_file(path="vector_store.py")
+        </div>
+        <div class="mock-msg tool-result">
+          <div class="role">📄 工具结果</div>
+          from sentence_transformers import...
+class VectorStore:
+    def __init__(...)
+    def add(self, vec):
+        self.vectors.append(vec)
+        ...
+        </div>
+        <div class="mock-msg tool">
+          <div class="role">🔧 工具调用</div>
+          apply_patch(file="vector_store.py", patch="...")
+        </div>
+        <div class="mock-msg assistant">
+          <div class="role">Mini-Coder</div>
+          改完了。修改：
+          • add() 加了 .astype('float32')
+          • 新增 batch_add() 批量接口
+          现在跑测试验证<span class="mock-cursor"></span>
+        </div>
+      </div>
+      <div class="mock-wv-input">
+        <input value="输入任务，按回车发送" readonly>
+        <button>发送</button>
+      </div>
+    </div>
+
+    <div class="mock-statusbar">
+      <div class="item">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        main
+      </div>
+      <div class="item">UTF-8</div>
+      <div class="item">Python 3.11</div>
+      <div class="item" style="margin-left:auto;">● Mini-Coder ready</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 2: Slash commands ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">02 /</span>
+    <span class="section-num">快捷</span>
+  </div>
+  <h2 class="section-title">4 个斜杠命令，替代 30 次点击。</h2>
+  <p class="section-desc">
+    高频操作一键触发。不用每次写"请帮我跑测试然后 commit 然后看错题本"。
+    `/test` `/commit` `/notes` `/solve`，输完按回车，剩下交给 Mini-Coder。
+  </p>
+
+  <div class="diff-grid">
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <div class="num">/test</div>
+      <h4>跑测试</h4>
+      <p>检测项目类型 → 自动 pytest / npm test，返回 X passed / Y failed</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <div class="num">/commit</div>
+      <h4>中文 commit</h4>
+      <p>git diff → LLM 看改动 → 输出 <code>功能: / 修复: / 重构:</code> 中文格式</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <div class="num">/notes</div>
+      <h4>错题本</h4>
+      <p>读 <code>.notes/今天.md</code>，回顾今天改了什么、踩了什么坑</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <div class="num">/solve <n></div>
+      <h4>刷 LeetCode</h4>
+      <p>fetch 题目 → 自动写解法 → 加测试 → 归档错题本</p>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink-2);">
+    <div style="color:var(--muted);margin-bottom:8px;font-family:'Outfit',sans-serif;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;">在 Webview 输入框输入：</div>
+    <div style="margin:6px 0;color:var(--primary);">/test</div>
+    <div style="color:var(--muted);margin:8px 0;">↓</div>
+    <div style="background:var(--code-bg);color:#a8c8b9;padding:12px 16px;border-radius:6px;line-height:1.7;">
+      🧪 正在跑测试...<br>
+      ✅ 测试全部通过（12/12）<br>
+      <span style="color:#7c7a72;">detected: pyproject.toml → pytest</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 3: Auto-test & fix ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">03 /</span>
+    <span class="section-num">自动</span>
+  </div>
+  <h2 class="section-title">保存测试文件 → 自动跑 → 失败 → AI 自动修。</h2>
+  <p class="section-desc">
+    别人让你"改完自己跑测试"，Mini-Coder 直接帮你跑。
+    失败的用例会让 AI 看错误日志 → 改源代码 → 再跑一遍 → 通知你结果。
+    一晚上少 5 分钟，一年 30 小时。
+  </p>
+
+  <div class="quote-block">
+    <blockquote>
+      "以前改完代码要等 CI 跑完才发现失败。现在保存那一刻就看到结果，失败的话 AI 直接帮我修，我只需要 review 一下。"
+    </blockquote>
+    <cite>— 未来的我，每晚 23:50 准备关电脑时</cite>
+  </div>
+
+  <div class="bench-section">
+    <h3>AutoTest 时间对比</h3>
+    <p class="sub">传统工作流 vs Mini-Coder 自动工作流</p>
+    <div class="bench">
+      <span class="bench-label">改代码 → 提 PR → CI 跑测试</span>
+      <div class="bench-track"><div class="bench-fill" style="width:95%;background:var(--rose);"></div></div>
+      <span class="bench-val">~5 min</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">失败 → 自己看 log → 自己改</span>
+      <div class="bench-track"><div class="bench-fill" style="width:80%;background:var(--rose);"></div></div>
+      <span class="bench-val">~15 min</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">Mini-Coder 保存即自动跑</span>
+      <div class="bench-track"><div class="bench-fill" style="width:8%;background:var(--green);"></div></div>
+      <span class="bench-val">3 sec</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">失败 → AI 自动修 → 再跑</span>
+      <div class="bench-track"><div class="bench-fill" style="width:25%;background:var(--green);"></div></div>
+      <span class="bench-val">~30 sec</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 4: Auto-archive (notes + zhCommit) ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">04 /</span>
+    <span class="section-num">记忆</span>
+  </div>
+  <h2 class="section-title">每次改动，自动归档到错题本。</h2>
+  <p class="section-desc">
+    一年后回看，你知道自己踩过什么坑。文件路径、关键 diff、测试结果、踩坑点，
+    自动追加到 <code>.notes/2026-10-15.md</code>——终身学习闭环。
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div style="background:var(--code-bg);color:#a8c8b9;padding:20px 24px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.65;overflow:hidden;">
+      <div style="color:#519aba;font-weight:600;margin-bottom:8px;"># 2026-10-15 学习记录</div>
+      <div style="color:#7c7a72;font-style:italic;margin-bottom:14px;">> 自动生成的代码改动记录。每次保存代码文件时，会自动追加到这里。</div>
+      <div style="color:#dcdcaa;">## 21:30 - vector_store.py</div>
+      <div>- 操作: 文件变更</div>
+      <div>- 路径: <span style="color:#ce9178;">`src/vector_store.py`</span></div>
+      <div>- 时间戳: 2026-10-15T13:30:42Z</div>
+      <div style="color:#dcdcaa;margin-top:14px;">## 22:05 - test_vector.py</div>
+      <div>- 操作: 文件变更</div>
+      <div>- 路径: <span style="color:#ce9178;">`tests/test_vector.py`</span></div>
+      <div>- 时间戳: 2026-10-15T14:05:18Z</div>
+    </div>
+
+    <div style="background:var(--card);border:1px solid var(--line);padding:20px 24px;border-radius:8px;font-size:13px;line-height:1.65;">
+      <div style="font-size:12px;color:var(--primary);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;">$ /commit</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);background:var(--line-soft);padding:10px 14px;border-radius:4px;margin:12px 0;">
+        跑测试 + 生成中文 commit message
+      </div>
+      <div style="margin-top:16px;color:var(--muted);">↓</div>
+      <div style="background:var(--green-soft);border-left:2px solid var(--green);padding:12px 16px;margin-top:12px;border-radius:0 6px 6px 0;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--green);font-weight:600;">重构: 把 vector_store.add 改为 numpy float32 + 加 batch_add</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">已复制到剪贴板，按 Ctrl+V 粘贴到 commit 输入框</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 5: 8 differentiators ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">05 /</span>
+    <span class="section-num">差异化</span>
+  </div>
+  <h2 class="section-title">8 个能力，Cursor / Cline / Continue 都没做齐。</h2>
+  <p class="section-desc">
+    不是"再做一遍 ChatGPT 套壳"，是"别人没做的差异化能力"。简历上能讲、用户能感知、竞争对手抄不走。
+  </p>
+
+  <div class="diff-grid">
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <div class="num">01</div>
+      <h4>BYOK 架构</h4>
+      <p>用户自带 key，开发者零成本。三级回退：.env / SecretStorage / 弹窗输入</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <div class="num">02</div>
+      <h4>ReAct agent loop</h4>
+      <p>30 轮上限 + AbortSignal + 流式回调，自实现不依赖 LangChain</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      <div class="num">03</div>
+      <h4>autocompact</h4>
+      <p>累计 token > 20k 时自动总结早期历史，借鉴自 nanobot</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div class="num">04</div>
+      <h4>AGENTS.md</h4>
+      <p>用户写项目规则 → 自动遵守。Cursor / Cline 都没做</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      <div class="num">05</div>
+      <h4>Slash commands</h4>
+      <p>/test /commit /notes /solve，借鉴 goose 一键触发工作流</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <div class="num">06</div>
+      <h4>AutoTest + AI fix</h4>
+      <p>保存测试文件 → 自动 pytest → 失败 AI 修，5 分钟/年 30 小时</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <div class="num">07</div>
+      <h4>中文 commit</h4>
+      <p>类型: 简短描述，国内开发者不用憋英文措辞</p>
+    </div>
+    <div class="diff-card">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <div class="num">08</div>
+      <h4>错题本自动归档</h4>
+      <p>每次改动写入 .notes/今天.md，终身学习闭环</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 6: Workflow ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">06 /</span>
+    <span class="section-num">完整流程</span>
+  </div>
+  <h2 class="section-title">从"我想重构代码"到"已 commit + 已归档"，5 步完成。</h2>
+  <p class="section-desc">一个完整用户故事，演示 Mini-Coder 怎么串起 8 个差异化能力。</p>
+
+  <div class="workflow">
+    <div class="step">
+      <div class="step-num">STEP 1</div>
+      <h5>用户输入任务</h5>
+      <p>在 Webview 输"重构 add 方法 + 加 batch_add"</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 2</div>
+      <h5>Agent 自动执行</h5>
+      <p>read_file → apply_patch → run_shell 跑测试。autocompact 防 token 爆炸</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 3</div>
+      <h5>自动测试验证</h5>
+      <p>保存 .py 文件触发 FileSystemWatcher → pytest 自动跑</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 4</div>
+      <h5>/commit 一键提交</h5>
+      <p>中文 commit "重构: 把 add 改为 float32 + 加 batch_add"</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 5</div>
+      <h5>/notes 归档</h5>
+      <p>改动自动写入 .notes/今天.md。明天回看依然记得</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Section 7: Architecture ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">07 /</span>
+    <span class="section-num">架构</span>
+  </div>
+  <h2 class="section-title">5 层架构，每层都能独立替换。</h2>
+  <p class="section-desc">
+    不绑定任何特定 LLM。换 MiniMax / DeepSeek / OpenAI 只改一个 config。
+    不绑定任何前端框架。换 Webview UI 只改 webview-ui/。
+  </p>
+
+  <div class="arch-wrap">
+    <svg viewBox="0 0 1040 380" width="100%" height="380" style="font-family:'Outfit',sans-serif;">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7c7a72"/>
+        </marker>
+      </defs>
+
+      <!-- Layer 1: UI -->
+      <rect x="20" y="30" width="240" height="80" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="140" y="58" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">Webview UI (React + Vite)</text>
+      <text x="140" y="78" text-anchor="middle" font-size="11" fill="#7c7a72">ChatPanel.tsx · slash commands · streaming</text>
+      <text x="140" y="96" text-anchor="middle" font-size="11" fill="#7c7a72">postMessage bridge</text>
+
+      <!-- Layer 2: Bridge -->
+      <rect x="20" y="150" width="240" height="80" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="140" y="178" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">Extension Bridge</text>
+      <text x="140" y="198" text-anchor="middle" font-size="11" fill="#7c7a72">panel.ts · slashCommands/registry.ts</text>
+      <text x="140" y="216" text-anchor="middle" font-size="11" fill="#7c7a72">路由：自然语言 / slash command</text>
+
+      <!-- Layer 3: Agent -->
+      <rect x="320" y="90" width="400" height="80" rx="10" fill="#fff" stroke="#c97b3f" stroke-width="2"/>
+      <text x="520" y="118" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">Agent Core (ReAct Loop)</text>
+      <text x="520" y="138" text-anchor="middle" font-size="11" fill="#7c7a72">agent/loop.ts · autocompact · ContextBuilder</text>
+      <text x="520" y="156" text-anchor="middle" font-size="11" fill="#7c7a72">30 轮上限 + AbortSignal</text>
+
+      <!-- Layer 4: Tools -->
+      <rect x="320" y="210" width="400" height="60" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="520" y="232" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">Tools Registry</text>
+      <text x="520" y="252" text-anchor="middle" font-size="11" fill="#7c7a72">read_file · write_file · apply_patch · run_shell</text>
+
+      <!-- Layer 5: Provider -->
+      <rect x="320" y="290" width="400" height="60" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="520" y="312" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">LLM Provider (OpenAI-compatible)</text>
+      <text x="520" y="332" text-anchor="middle" font-size="11" fill="#7c7a72">MiniMax · DeepSeek · OpenAI · Ollama</text>
+
+      <!-- Layer 6: Features -->
+      <rect x="780" y="30" width="240" height="80" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="900" y="58" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">3 Differentiated Features</text>
+      <text x="900" y="78" text-anchor="middle" font-size="11" fill="#7c7a72">features/autoTest.ts</text>
+      <text x="900" y="96" text-anchor="middle" font-size="11" fill="#7c7a72">features/zhCommit.ts · features/notes.ts</text>
+
+      <!-- Layer 7: Config -->
+      <rect x="780" y="150" width="240" height="80" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="900" y="178" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">BYOK Config Manager</text>
+      <text x="900" y="198" text-anchor="middle" font-size="11" fill="#7c7a72">config.ts · .env · SecretStorage</text>
+      <text x="900" y="216" text-anchor="middle" font-size="11" fill="#7c7a72">三级回退（.env > Storage > 输入）</text>
+
+      <!-- Layer 8: Storage -->
+      <rect x="780" y="270" width="240" height="80" rx="10" fill="#fff" stroke="#e9e3d6" stroke-width="1.5"/>
+      <text x="900" y="298" text-anchor="middle" font-size="13" font-weight="600" fill="#14171e">Persistent Storage</text>
+      <text x="900" y="318" text-anchor="middle" font-size="11" fill="#7c7a72">.notes/今天.md (错题本)</text>
+      <text x="900" y="336" text-anchor="middle" font-size="11" fill="#7c7a72">AGENTS.md (项目规则)</text>
+
+      <!-- Arrows -->
+      <line x1="260" y1="70" x2="320" y2="120" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="260" y1="190" x2="320" y2="140" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="520" y1="170" x2="520" y2="210" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="520" y1="270" x2="520" y2="290" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="720" y1="130" x2="780" y2="70" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="720" y1="150" x2="780" y2="190" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="720" y1="170" x2="780" y2="310" stroke="#7c7a72" stroke-width="1.5" marker-end="url(#arrow)"/>
+    </svg>
+  </div>
+</section>
+
+<!-- ========== Section 8: Roadmap ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">08 /</span>
+    <span class="section-num">路线图</span>
+  </div>
+  <h2 class="section-title">12 周，从代码到首篇博客。</h2>
+  <p class="section-desc">W1-W3 开发上线，W4-W12 写博客做长尾。</p>
+
+  <ol class="roadmap">
+    <li class="done">
+      <div class="roadmap-week">W1 · 第 1 周 <span class="tag done">✓ 完成</span></div>
+      <h4>骨架 + 8 个差异化能力</h4>
+      <p>项目代码 19 个源文件 + 10 个 webview 文件，编译 0 错。借鉴 nanobot + goose 加 3 个新差异化（autocompact / AGENTS.md / slash commands）。</p>
+    </li>
+    <li>
+      <div class="roadmap-week">W2 · 第 2 周 <span class="tag now">正在做</span></div>
+      <h4>端到端评测 + 修 bug</h4>
+      <p>跑 5 道 LeetCode 验证 agent loop，pass_rate 目标 ≥ 80%。修 3 个 AI 扩展冲突问题。</p>
+    </li>
+    <li>
+      <div class="roadmap-week">W3 · 第 3 周 <span class="tag next">即将</span></div>
+      <h4>发布资产 + vsce publish</h4>
+      <p>icon 设计 + 5 张截图 + README 完整。vsce package → vsce publish 首发上线 Marketplace。</p>
+    </li>
+    <li>
+      <div class="roadmap-week">W4-W12 · 9 周 <span class="tag next">后续</span></div>
+      <h4>3 篇技术博客 + 5 平台发</h4>
+      <p>《ReAct agent 自实现》《BYOK 架构》《AGENTS.md 借鉴 nanobot》。知乎 / 掘金 / CSDN / 博客园 / SegmentFault。0 元推广，靠搜索长尾。</p>
+    </li>
+  </ol>
+</section>
+
+<!-- ========== Section 9: 数字 + 长尾 ========== -->
+<section>
+  <div class="section-head">
+    <span class="section-num">09 /</span>
+    <span class="section-num">预期</span>
+  </div>
+  <h2 class="section-title">首月 5k 下载，3 个月 30k。</h2>
+  <p class="section-desc">
+    不烧钱，靠差异化 + 长尾。AI 编程助手赛道 2026 年还在早期，
+    Mini-Coder 用 8 个差异化能力拿下一批"vscode + AI + 中文"用户。
+  </p>
+
+  <div class="bench-section">
+    <h3>预期下载量增长曲线</h3>
+    <p class="sub">基于差异化 + 5 平台博客长尾（非真实数据，预期估算）</p>
+    <div class="bench">
+      <span class="bench-label">上线首周（仅 Marketplace 搜索）</span>
+      <div class="bench-track"><div class="bench-fill" style="width:8%;background:var(--primary);"></div></div>
+      <span class="bench-val">~400</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">首月（3 篇博客发完）</span>
+      <div class="bench-track"><div class="bench-fill" style="width:18%;background:var(--primary);"></div></div>
+      <span class="bench-val">~5k</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">3 个月（搜索长尾起效）</span>
+      <div class="bench-track"><div class="bench-fill" style="width:42%;background:var(--primary);"></div></div>
+      <span class="bench-val">~30k</span>
+    </div>
+    <div class="bench">
+      <span class="bench-label">预期评分（4.5+）</span>
+      <div class="bench-track"><div class="bench-fill" style="width:90%;background:var(--green);"></div></div>
+      <span class="bench-val">★★★★½</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========== Final CTA ========== -->
+<section class="cta">
+  <h2>一切从这里开始。</h2>
+  <p>W1 已经完成。接下来的 11 周，从代码到用户。</p>
+  <a class="marketplace-btn" href="#">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    即将上线 VS Code Marketplace
+  </a>
+</section>
+
+</main>
+</body>
+</html>

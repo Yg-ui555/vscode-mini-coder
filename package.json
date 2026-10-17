@@ -1,0 +1,100 @@
+{
+  "name": "vscode-mini-coder",
+  "displayName": "Mini-Coder AI 编程助手",
+  "description": "AI 编程助手：自动跑测试 + 中文 commit + 错题本归档，支持 BYOK（自带 API key）模式",
+  "version": "0.1.0",
+  "publisher": "shuxiangke-minicoder",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-name/vscode-mini-coder"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "AI",
+    "AI Assistant",
+    "LLM",
+    "Claude",
+    "GPT",
+    "DeepSeek",
+    "MiniMax",
+    "中文",
+    "自动测试",
+    "中文 commit",
+    "错题本"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mini-coder.setApiKey",
+        "title": "Mini-Coder: 设置 API Key"
+      },
+      {
+        "command": "mini-coder.openChat",
+        "title": "Mini-Coder: 打开聊天面板"
+      },
+      {
+        "command": "mini-coder.runTest",
+        "title": "Mini-Coder: 自动跑测试"
+      },
+      {
+        "command": "mini-coder.zhCommit",
+        "title": "Mini-Coder: 生成中文 commit"
+      },
+      {
+        "command": "mini-coder.viewNotes",
+        "title": "Mini-Coder: 查看今日错题本"
+      }
+    ],
+    "configuration": {
+      "title": "Mini-Coder",
+      "properties": {
+        "mini-coder.provider": {
+          "type": "string",
+          "enum": [
+            "minimax",
+            "deepseek",
+            "openai",
+            "anthropic",
+            "ollama"
+          ],
+          "default": "deepseek",
+          "description": "选择 LLM Provider"
+        },
+        "mini-coder.model": {
+          "type": "string",
+          "default": "deepseek-chat",
+          "description": "模型 ID"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile && npm run build:webview",
+    "compile": "tsc",
+    "watch": "tsc --watch",
+    "build:webview": "cd webview-ui && npm install && npm run build",
+    "build:all": "npm run build:webview && npm run compile",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.140.0",
+    "@vitest/coverage-v8": "^5.0.5",
+    "typescript": "^5.3.0",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}

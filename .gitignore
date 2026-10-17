@@ -1,0 +1,9 @@
+node_modules/
+out/
+.vscode-test/
+*.log
+.env
+.DS_Store
+.notes/
+dist-webview/
+webview-ui/node_modules/

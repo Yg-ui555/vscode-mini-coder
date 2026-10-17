@@ -1,0 +1,7 @@
+# node_modules/  # 调试时需要，取消注释会导致模块找不到
+src/
+tsconfig.json
+*.map
+*.log
+.gitignore
+.env
