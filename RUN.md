@@ -30,8 +30,9 @@ code D:/projects/vscode-mini-coder
 
 - VS Code 自动调用 `.vscode/launch.json` 配置
 - 新窗口标题栏会显示 `[Extension Development Host]`
-- 主窗口右下角状态栏：**Mini-Coder 激活** 提示应该弹出来
-- 验证：开发者工具 → Console 应该看到 `Mini-Coder 激活` 日志
+- **主窗口右下角状态栏**会出现 `$(sparkle) Mini-Coder`，点它直接打开聊天面板
+- 验证：开发者工具 → Console 应该看到 `Mini-Coder 激活` 日志，
+  以及「输出 → Mini-Coder」里的 `状态栏入口已注册：Mini-Coder`
 
 **如果没看到**：打开主窗口的 Output → "Extension Host" 看错误。
 
@@ -117,14 +118,19 @@ echo "// test" >> src/test.txt
 按这个清单逐项确认，**全部 ✅ 才算跑通**：
 
 - [ ] F5 启动后新窗口标题是 `[Extension Development Host]`
+- [ ] 主窗口右下角状态栏出现 `Mini-Coder`（点它能打开聊天面板）
 - [ ] Output → "Extension Host" 有 `Mini-Coder 激活` 日志
-- [ ] 命令面板能找到 5 个 `Mini-Coder:` 命令
+- [ ] 命令面板能找到 `Mini-Coder:` 命令（含「恢复历史会话」「列出历史会话」）
 - [ ] 设置 API Key 弹窗 + 实际保存成功
 - [ ] 打开聊天面板正常显示 Webview
+- [ ] `/doctor` 输出的「生效配置」和实际用的 provider/模型一致
 - [ ] `/test` slash command 跑测试有反馈
 - [ ] 自动测试特色：保存测试文件 → 自动 pytest → 通过 / 失败提示
 - [ ] 中文 commit 特色：生成中文 commit message
 - [ ] 错题本：`.notes/今天.md` 自动创建
+- [ ] ⭐ 搜索工具：让 agent 找一个符号的定义处，应显示 `grep` 调用并给出 `文件:行号`
+- [ ] ⭐ `/undo`：让 agent 改一个文件 → 执行 `/undo` → 文件恢复原样
+- [ ] ⭐ 会话持久化：聊几句 → 关掉 VS Code → 重开 → 面板里对话还在
 - [ ] Agent 自然语言任务：能调工具完成任务
 
 ## 8. 常见问题排查

@@ -45,6 +45,7 @@ export function ChatPanel() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCmd[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [usage, setUsage] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toastIdRef = useRef(0);
 
@@ -53,6 +54,15 @@ export function ChatPanel() {
     const handler = (e: MessageEvent) => {
       const msg = e.data;
       switch (msg.type) {
+        // ⭐ 恢复历史会话：直接把整段历史灌进前端
+        //   （之前没有这个 case，导致会话存了盘但用户根本看不到）
+        case 'history':
+          setMessages(msg.messages || []);
+          break;
+        // ⭐ 上下文用量：让用户看得见"还剩多少"，也是省钱的心理暗示
+        case 'usage':
+          setUsage(msg.content || '');
+          break;
         case 'text':
           setMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -246,7 +256,7 @@ export function ChatPanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          placeholder="输入任务（如：把 main.py 改成 async），或 /test /commit /notes /doctor /logs"
+          placeholder="输入任务（如：把 main.py 改成 async），或 /test /commit /undo /notes /doctor"
           disabled={isStreaming}
         />
         {isStreaming ? (
@@ -269,7 +279,16 @@ export function ChatPanel() {
         >
           🗑 新会话
         </button>
-        <span className="hint">Enter 发送 · / 开头的走快捷命令 · /doctor 自检</span>
+        <button
+          className="link-btn"
+          onClick={() => vscode.postMessage({ type: 'run_command', command: 'mini-coder.restoreSession' })}
+          title="恢复之前的历史会话"
+        >
+          📂 历史会话
+        </button>
+        {/* ⭐ 上下文用量：让用户看得见"还剩多少额度"，也是省钱的心理暗示 */}
+        {usage && <span className="usage" title="本轮对话已占用的上下文 / 模型上限">{usage}</span>}
+        <span className="hint">Enter 发送 · / 开头的走快捷命令 · /undo 撤销改动</span>
       </div>
     </div>
   );

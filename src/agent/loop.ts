@@ -30,42 +30,73 @@
  *      「空闲 15 分钟就归档会话」的定时任务，属于省 token 的后台机制，
  *      跟"上下文太长要压缩"是两回事。
  *
- *   ✅ 真正的超阈值压缩在 nanobot/context_governance.py，本文件的
- *      COMPACT_THRESHOLD_CHARS 思路来自那里的 compact_messages 机制，
- *      但当前仍是简化版，与 nanobot 的差距在：
- *        1. nanobot 按真 token + 模型窗口动态算预算；我们按固定 8 万字符估算
- *        2. nanobot 用「水位线」——原文全留磁盘，只是不再重发给 LLM；
- *           我们是原地重排 messages
- *        3. nanobot summary 落盘；我们是内存里，重启就丢
- *        4. 我们固定保留最近 6 条，长工具链里可能把上一步的工具结果挤出去，
- *           导致 LLM 重复改同一个文件
- *      改进方案见文件末尾 TODO 注释。
+ *   ✅ 真正的超阈值压缩在 nanobot/context_governance.py，
+ *      本文件的思路来自那里的 compact_messages 机制。
+ *
+ * ── 2026-10-21 加固后，与 nanobot 的剩余差距 ────────────────────
+ *
+ *   1) 【summary 落盘】—— 会话持久化已实现，见 session/store.ts
+ *
+ *   2) 【visibility flag 而非原地重排】
+ *      goose 的做法（context_mgmt/mod.rs:89-226）：压缩时不删任何消息，
+ *      只翻 agentVisible 标记 —— 摘要对模型可见、原文对模型不可见但用户
+ *      仍能在 UI 里滚动查看。好处是"用户看到的"和"模型看到的"解耦。
+ *      当前实现是原地重排 messages，用户看不到被压缩掉的历史。
+ *      这是下一步的优化方向（需要 Webview 侧配合渲染历史）。
+ *
+ *   3) 【历史自愈】—— nanobot 会清理畸形 tool_call / 孤立 tool 结果，
+ *      本项目还没有，见 util/historyRepair.ts（待做）。
  * ─────────────────────────────────────────────────────────────
  */
 
 import { OpenAIProvider } from './provider';
 import { ToolRegistry, ToolResult } from './tools/registry';
+import { estimateMessagesTokens, contextWindowFor, DEFAULT_CONTEXT_WINDOW } from '../util/tokens';
 
 export interface AgentCallbacks {
   onText: (chunk: string) => void;
   onToolCall: (name: string, args: any) => void;
   onToolResult: (name: string, result: ToolResult) => void;
   onCompact?: (summary: string) => void;  // ← 新增：压缩事件回调
+  /** 上下文用量变化（用于 UI 显示"已用 12k / 64k"） */
+  onUsage?: (current: number, window: number) => void;
 }
 
-/** autocompact 阈值（字符数）—— ≈ 20k tokens，中文按 1 char ≈ 1 token 估算 */
-const COMPACT_THRESHOLD_CHARS = 80_000;
-/** 保留最近 N 条消息不被压缩 */
-const KEEP_RECENT_MESSAGES = 6;
-/** 压缩总结的最大字数 */
-const SUMMARY_MAX_CHARS = 1500;
+/**
+ * 压缩触发阈值：占上下文窗口的比例
+ *
+ * 借鉴 goose：crates/goose/src/context_mgmt/mod.rs:243 的
+ * check_if_compaction_needed 用 usage_ratio > 0.7 触发，默认 0.7。
+ * 留 30% 余量是因为一次工具调用可能就要塞进几万 token 的结果，
+ * 压到刚好卡线再触发就晚了。
+ */
+const COMPACT_THRESHOLD_RATIO = 0.7;
+
+/**
+ * 压缩后至少保留最近多少条【对话】消息
+ *
+ * ⚠️ 2026-10-21 修复：原来这里是"保留最近 6 条【所有】消息"。
+ *   长工具链跑起来后，最近 6 条很可能正好把「上一步 apply_patch 的结果」
+ *   挤出去 → LLM 看不见自己刚改了什么 → 重复改同一个文件。
+ *
+ *   现在改成两条规则叠加：
+ *     1. 永远保住所有 tool 消息（哪怕它很靠前）—— 它们是"我干了什么"的唯一记录
+ *     2. 对话消息至少保留最近 KEEP_RECENT_MESSAGES 条
+ */
+const KEEP_RECENT_MESSAGES = 12;
 
 export class AgentLoop {
+  /** 本次会话的上下文窗口上限（token 数） */
+  readonly contextWindow: number;
+
   constructor(
     private provider: OpenAIProvider,
     private registry: ToolRegistry,
     private maxIterations = 30,
-  ) {}
+    model = '',
+  ) {
+    this.contextWindow = contextWindowFor(model) || DEFAULT_CONTEXT_WINDOW;
+  }
 
   /**
    * 跑一轮 agent 循环
@@ -218,12 +249,21 @@ export class AgentLoop {
     signal: AbortSignal | undefined,
     callbacks: AgentCallbacks,
   ): Promise<void> {
-    const totalChars = messages.reduce((sum, m) => {
-      const c = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
-      return sum + c.length;
-    }, 0);
+    // ⭐ 2026-10-21 改用 token 计数
+    //   原来是数字符（COMPACT_THRESHOLD_CHARS = 80000），
+    //   但 token ≠ 字符：同样 8 万字符，全英文约 2 万 token，
+    //   全中文约 6 万 token，误差 3 倍。估少了白丢历史，
+    //   估多了会被 API 直接 400 拒绝、整轮对话崩掉。
+    //
+    //   现在按【上下文窗口的使用比例】触发（借鉴 goose 的 0.7），
+    //   并且中英文分开估算（见 util/tokens.ts）。
+    const totalTokens = estimateMessagesTokens(messages, this.registry.schemas);
+    const threshold = Math.floor(this.contextWindow * COMPACT_THRESHOLD_RATIO);
 
-    if (totalChars < COMPACT_THRESHOLD_CHARS) return;
+    // 每轮都把用量报给 UI，让用户看得见"还剩多少"
+    callbacks.onUsage?.(totalTokens, this.contextWindow);
+
+    if (totalTokens < threshold) return;
 
     // 切分：system + [要总结的] + [保留最近的]
     const systemIdx = messages[0]?.role === 'system' ? 0 : -1;
@@ -235,8 +275,24 @@ export class AgentLoop {
     const toSummarize = messages.slice(startIdx, endIdx);
     const recent = messages.slice(endIdx);
 
+    // ⭐ 关键修复：tool 消息【永远不能被压缩掉】
+    //   tool 消息记录的是"我实际改了什么、命令返回了什么"。
+    //   一旦压缩掉，LLM 就失去了对自己行为的记忆，会重复改同一个文件、
+    //   或者以为命令跑过了而跳过 —— 这正是原来那个 bug 的根因。
+    const protectedMessages: any[] = [];
+    const summarizable: any[] = [];
+    for (const m of toSummarize) {
+      if (m.role === 'tool') protectedMessages.push(m);
+      else summarizable.push(m);
+    }
+
+    if (summarizable.length === 0) {
+      // 全是 tool 消息，宁可不压也不能丢
+      return;
+    }
+
     // 构造总结 prompt
-    const transcriptText = toSummarize
+    const transcriptText = summarizable
       .map((m) => {
         const c = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
         const tools = m.tool_calls ? ` [调用工具: ${m.tool_calls.map((tc: any) => tc.function?.name).join(', ')}]` : '';
@@ -250,7 +306,7 @@ export class AgentLoop {
 - 关键决策和发现
 - 测试结果（如有）
 
-少于 ${SUMMARY_MAX_CHARS} 字，用 Markdown 列表形式。
+少于 1500 字，用 Markdown 列表形式。
 
 对话历史：
 ${transcriptText}`;
@@ -279,43 +335,28 @@ ${transcriptText}`;
       role: 'system',
       content: `[Earlier conversation summary — autocompact triggered at ${messages.length} messages]\n\n${summary.trim()}`,
     });
+    // ⭐ 被保护的工具消息按原顺序放回（它们比摘要更权威 ——
+    //   摘要可能漏掉细节，但工具结果是客观事实）
+    newMessages.push(...protectedMessages);
     newMessages.push(...recent);
+
+    // ⭐ 压完后补一条"继续"指令
+    //   没有这条的话，LLM 拿到一段摘要后常常会"忘了自己正在干嘛"，
+    //   要么停下来问用户，要么从头再来一遍。
+    //   借鉴 nanobot 的 context_governance.py:574 —— 压缩后明确告诉它继续。
+    newMessages.push({
+      role: 'user',
+      content:
+        `[系统提示：上面的对话历史因为过长被压缩成了一段摘要，工具调用记录仍完整保留。` +
+        `请基于摘要和工具记录继续完成你之前正在做的任务，不要重新开始，也不要询问用户是否要继续。]`,
+    });
 
     messages.length = 0;
     messages.push(...newMessages);
 
     callbacks.onCompact?.(
-      `🔄 autocompact：${toSummarize.length} 条历史 → 1 段总结（${summary.length} 字）`,
+      `🔄 autocompact：${summarizable.length} 条对话 → 1 段总结` +
+      `（保住 ${protectedMessages.length} 条工具记录 + ${recent.length} 条最近消息）`,
     );
-
-    // ─────────────────────────────────────────────────────────
-    // TODO(改进方案)：当前实现与 nanobot 的三个已知差距
-    //
-    // 1) 【保留策略会导致重复改文件】——最该先修的一条
-    //    现在固定保留最近 KEEP_RECENT_MESSAGES=6 条。长工具链跑起来后，
-    //    最近 6 条很可能正好把「上一步 apply_patch 的结果」挤出去，
-    //    LLM 看不见自己刚改了什么 → 重复改同一个文件。
-    //    nanobot 的解法（水位线）：原文永远留在数组里，只是打一个
-    //    "archiveIndex"，重发给 LLM 时只发 [0..archiveIndex] 的 summary
-    //    + (archiveIndex..end] 的原文。内存占用不变，但 LLM 看到的是
-    //    完整摘要，不会因为"砍太狠"而失忆。
-    //
-    //    最小改法：KEEP_RECENT_MESSAGES 提到 12~16，
-    //    并且压缩时【优先保住所有 tool 消息】（哪怕更早的），
-    //    只压缩纯 user/assistant 的对话轮次。
-    //
-    // 2) 【summary 落盘】
-    //    现在 summary 只活在内存的 messages 里，插件重开就没了。
-    //    nanobot 存进 session.metadata，重启能接着用。
-    //    我们可以存到 context.globalState（VS Code 提供的持久化 KV）。
-    //
-    // 3) 【压完后补"继续"指令】
-    //    如果这轮压缩后没有新的用户输入（常见于自动跑测试失败后接着修），
-    //    LLM 看到一段 summary 会"忘了自己正在干嘛"。
-    //    nanobot 的做法（context_governance.py:574）：补一条
-    //    continuation 消息，明确告诉它"继续完成之前在做的任务"。
-    //
-    // 优先级：1 > 3 > 2。第 1 条是真实会导致改错代码的，第 3 条几行代码。
-    // ─────────────────────────────────────────────────────────
   }
 }

@@ -77,6 +77,34 @@ export interface SnapshotInput {
 /** 当前会话 key。激活时设置一次，让 VS Code 重开后还能 undo */
 let currentSessionKey = '';
 
+/**
+ * checkpoint 总开关
+ *
+ * ⭐ 为什么需要这个开关（2026-10-21）
+ *
+ *   评测沙箱里【必须关掉】checkpoint。原因：
+ *     src/eval/types.ts 的 listFiles() 不忽略任何目录，会把
+ *     sandbox/.mini-coder/checkpoints/... 全算进"agent 改了哪些文件"。
+ *     那样评测报告的 changedFiles 就被自己的存档污染了 ——
+ *     而 changedFiles 正是 L4 回归检测的辅助证据。
+ *
+ *   更根本的原因：评测要回答的是"agent 能不能把代码改对"，
+ *   checkpoint 回答的是"agent 改错了能不能退回来"，两件事。
+ *   沙箱里没有"退回来"这个概念，也不该有。
+ *
+ *   沙箱在 finally 里本来就会被整个 rmSync 掉，快照存了也是白存。
+ */
+let checkpointEnabled = true;
+
+/** 开关 checkpoint（评测沙箱里关掉） */
+export function setCheckpointEnabled(enabled: boolean): void {
+  checkpointEnabled = enabled;
+}
+
+export function isCheckpointEnabled(): boolean {
+  return checkpointEnabled;
+}
+
 /** 设置当前会话（由 extension 激活或新建会话时调用） */
 export function setCheckpointSession(key: string): void {
   currentSessionKey = key;
@@ -127,6 +155,7 @@ function atomicWrite(target: string, content: string): void {
  */
 export function snapshotOperation(tool: string, inputs: SnapshotInput[]): string | null {
   if (inputs.length === 0) return null;
+  if (!checkpointEnabled) return null;
 
   const files: CheckpointFile[] = [];
 

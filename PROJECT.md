@@ -150,13 +150,33 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 
 | 项 | 状态 |
 |---|---|
-| 工具数量 | 4 个（read/write/applyPatch/runShell），**缺 grep/glob** |
-| pass rate | **未测**（评测集刚建成，尚未跑真机） |
-| autoTest | ✅ 已修`head -50`（Windows 不兼容）+ 误判退出码 |
+| 工具数量 | **8 个**：read_file / grep / glob / list_dir / apply_patch / write_file / restore_file / run_shell |
+| 测试 | **144 个用例 / 14 个文件全绿** |
+| pass rate | **未测**（评测集已建成，但 API 账号余额不足，尚未跑真机） |
+| 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
+| 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
+| 会话持久化 | ✅ JSONL 落盘，关掉 VS Code 再打开对话还在 |
+| Token 计数 | ✅ 中英文分别估算，按上下文窗口 70% 触发压缩 |
+| autoTest | ✅ 已修 `head -50`（Windows 不兼容）+ 误判退出码 |
 | zhCommit | ✅ 已修 untracked 文件漏读 + `type` 命令不可靠 |
-| notes | ⚠️ 只记时间路径，没记 diff 和踩坑，与文档描述不符 |
-| 缺失能力 | 权限分级（MCP 只读自动放行）、checkpoint、中断续跑 |
-| 已知硬伤 | 已修 12 项（详见 git log）；autocompact 保留策略会挤掉工具结果 |
+| notes | ⚠️ 只记时间路径，没记 diff 和踩坑，与文档描述不符（**下一步**） |
+| 缺失能力 | 三档权限分级（工具元数据已就位，UI 未接）、diff 预览确认、MCP、Skills、中断续跑 |
+| 已知硬伤 | autocompact 已改为「保住 tool 消息 + 压缩后补 continuation」 |
+
+### 🆕 2026-10-21 加固记录
+
+**新增**：grep / glob / list_dir 三工具 · 文件 checkpoint 回滚 · restore_file 工具 · 会话 JSONL 持久化 · token 计数 · 工具元数据（readOnly / destructive）· 状态栏入口
+
+**修掉的 bug**：
+
+| Bug | 影响 |
+|---|---|
+| 相对路径按 `process.cwd()` 解析 | ⭐ **影响生产**：从别的目录启动 VS Code 时，所有相对路径编辑都会被误判成越界而拒绝 |
+| glob 剪枝过度 | 模式以 `*` 开头时中间目录被全部剪掉，工具永远返回「没有匹配」——极具误导性 |
+| 设置项没接 `getConfiguration` | 用户在设置界面改 provider / model 完全无效果 |
+| `MINI_CODER_BASE_URL` 没人读 | MiniMax 国内站 / 国际站无法切换 |
+| `process.cwd()` 当工作目录 | run_shell / autoTest / zhCommit 可能在用户没预期的目录执行 |
+| 工具注册散落 4 处 | 评测环境能力 ≠ 用户能力，pass rate 直接失真 |
 
 ## 八、成本（真干 + 0 推广 + 省钱）
 

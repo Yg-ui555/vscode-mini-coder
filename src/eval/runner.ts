@@ -31,6 +31,7 @@ import { ContextBuilder } from '../agent/context';
 import { setWorkspaceRoot } from '../agent/tools/paths';
 import { setApprovalMode } from '../agent/tools/approval';
 import { setEvalWorkspace } from './shim';
+import { setCheckpointEnabled } from '../agent/checkpoint/store';
 
 import {
   TaskMeta,
@@ -158,6 +159,10 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     setWorkspaceRoot(sandbox);
     setEvalWorkspace(sandbox);
     setApprovalMode(config.approvalMode);
+    // ⭐ 沙箱里关掉 checkpoint：它会在 sandbox 下造出 .mini-coder/ 目录，
+    //    而 eval/types.ts 的 listFiles() 不忽略任何目录，会把这些存档
+    //    算进"agent 改了哪些文件"，污染 L4 回归检测的证据链。
+    setCheckpointEnabled(false);
 
     const check = loadCheck(task);
 
@@ -180,7 +185,7 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     //   沙箱里少了 grep，而不是模型不会。
     const registry = createDefaultRegistry();
 
-    const loop = new AgentLoop(provider, registry, config.maxIterations);
+    const loop = new AgentLoop(provider, registry, config.maxIterations, config.model);
 
     const messages: any[] = [
       { role: 'system', content: new ContextBuilder(sandbox).buildSystemPrompt() },
@@ -288,5 +293,6 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     } catch {}
     setWorkspaceRoot(undefined);
     setEvalWorkspace(undefined);
+    setCheckpointEnabled(true);
   }
 }

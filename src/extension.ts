@@ -15,6 +15,7 @@ import { registerZhCommit } from './features/zhCommit';
 import { registerNotes } from './features/notes';
 import { ChatPanel } from './webview/panel';
 import { registerDoctor } from './commands/doctor';
+import { registerSessionCommands } from './commands/sessions';
 import { resetApprovals } from './agent/tools/approval';
 import { setWorkspaceRoot } from './agent/tools/paths';
 import { initLogger, info, error as logError, getAllLogs, clearLogs } from './logger';
@@ -42,6 +43,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ⭐ 注册正式的环境自检命令（原来只有 /doctor，用户不知道存在）
   registerDoctor(context, configManager);
+
+  // ⭐ 注册会话管理命令（恢复历史 / 列出历史）
+  registerSessionCommands(context);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('mini-coder.reloadSession', () => {
+      ChatPanel.currentPanel?.reloadFromDisk();
+    }),
+  );
 
   // ⭐ 状态栏入口
   //   修复记录（2026-10-21）：RUN.md 第 33 行写着"主窗口右下角状态栏会弹出

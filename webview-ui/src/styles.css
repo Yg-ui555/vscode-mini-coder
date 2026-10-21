@@ -248,6 +248,18 @@ body {
   opacity: 0.8;
 }
 
+/* 上下文用量条：让用户看得见"还剩多少额度" */
+.input-footer .usage {
+  color: #6b7280;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+  cursor: help;
+}
+
 /* ========== Toast 小弹窗（错误提示 + 修复按钮） ========== */
 
 .toast {

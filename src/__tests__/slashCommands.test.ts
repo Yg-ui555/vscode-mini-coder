@@ -53,9 +53,10 @@ describe('parseSlashCommand', () => {
 });
 
 describe('listSlashCommands', () => {
-  it('should return all 6 built-in commands', () => {
+  // 2026-10-21 新增 /undo（撤销 AI 改动）和 /sessions（历史会话），6 → 8
+  it('should return all 8 built-in commands', () => {
     const cmds = listSlashCommands();
-    expect(cmds.length).toBe(6);
+    expect(cmds.length).toBe(8);
   });
 
   it('should include expected command names', () => {
@@ -66,6 +67,9 @@ describe('listSlashCommands', () => {
     expect(names).toContain('solve');
     expect(names).toContain('doctor');
     expect(names).toContain('logs');
+    // ⭐ 差异化能力：撤销 + 会话持久化
+    expect(names).toContain('undo');
+    expect(names).toContain('sessions');
   });
 
   it('should include description for each command', () => {

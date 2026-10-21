@@ -110,8 +110,10 @@ describe('AgentLoop', () => {
   });
 
   it('should fire onCompact callback when messages exceed threshold', async () => {
-    // 构造超大 messages 触发 autocompact（threshold 80k chars）
-    const big = 'x'.repeat(40_000);
+    // ⭐ 2026-10-21：压缩触发条件从"8 万字符"改成"上下文窗口的 70%"。
+    //    这里用中文构造大内容，顺带验证 util/tokens.ts 的 CJK 估算路径。
+    //    7 万汉字 ≈ 50000 token > 64000 × 0.7 = 44800 → 触发。
+    const big = '中'.repeat(70_000);
     const provider = new MockProvider([
       // 第一个响应：compact 总结 LLM 调用（必须返回 content，否则 compact 静默 return）
       { content: 'summary of past messages' },
@@ -122,14 +124,24 @@ describe('AgentLoop', () => {
 
     const messages: any[] = [
       { role: 'system', content: 'sys' },
-      { role: 'user', content: big }, // 40k chars
-      { role: 'user', content: big }, // 40k chars → total 80k+ 触发 compact
-      // 必须有 ≥ 7 条 messages，KEEP_RECENT=6 时才能 compact 掉中间部分
+      { role: 'user', content: big }, // 中文 7 万字
+      { role: 'user', content: big }, // 再加 7 万字
+      // 必须有足够多的 messages，KEEP_RECENT=12 时才能 compact 掉中间部分
       { role: 'assistant', content: big.slice(0, 200) },
       { role: 'user', content: big.slice(0, 200) },
       { role: 'assistant', content: big.slice(0, 200) },
       { role: 'user', content: big.slice(0, 200) },
       { role: 'assistant', content: big.slice(0, 200) },
+      { role: 'user', content: big.slice(0, 200) },
+      { role: 'assistant', content: big.slice(0, 200) },
+      { role: 'user', content: big.slice(0, 200) },
+      { role: 'assistant', content: big.slice(0, 200) },
+      { role: 'user', content: big.slice(0, 200) },
+      // ⚠️ 消息条数必须 > KEEP_RECENT_MESSAGES(12) + system + 1 = 14 条，
+      //    否则 maybeCompact 会走"没东西可压缩"的保护性 return。
+      //    下面这两条把总数补到 16 条。
+      { role: 'assistant', content: big.slice(0, 200) },
+      { role: 'user', content: '继续' },
       { role: 'user', content: 'go' },
     ];
 

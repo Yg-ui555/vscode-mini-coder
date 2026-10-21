@@ -23,6 +23,8 @@ import { runProjectTests } from '../features/autoTest';
 import { generateZhCommitStandalone } from '../features/zhCommit';
 import { readTodayNotes } from '../features/notes';
 import { runDoctor } from '../commands/doctor';
+import { restoreLatest, listCheckpoints } from '../agent/checkpoint/store';
+import { info } from '../logger';
 
 export interface SlashContext {
   configManager: ConfigManager;
@@ -126,6 +128,77 @@ const COMMANDS: SlashCommand[] = [
     handler: async () => {
       await vscode.commands.executeCommand('mini-coder.copyLogs');
       return { message: '✓ 日志已复制到剪贴板', success: true };
+    },
+  },
+  {
+    name: 'undo',
+    description: '撤销 AI 最近一次对文件的修改（一键退回原样）',
+    handler: async () => {
+      const all = listCheckpoints();
+      if (all.length === 0) {
+        return {
+          message:
+            '📒 本次会话还没有 AI 修改过文件。\n\n' +
+            '提示：checkpoint 只记录本次会话内 AI 的写操作；' +
+            '你自己手动改的文件不受影响。',
+          success: false,
+        };
+      }
+
+      // 先给用户看清楚要退什么，再问要不要退 —— 不做"盲操作"
+      const preview = all
+        .slice(0, 5)
+        .map(
+          (c) =>
+            `${c.restored ? '✓已还原' : '⬜可还原'}  ${new Date(c.ts).toLocaleTimeString('zh-CN')}  ` +
+            `${c.tool}  ${c.files.length} 个文件\n` +
+            c.files.slice(0, 4).map((f) => `        • ${f.path}`).join('\n'),
+        )
+        .join('\n');
+
+      const action = await vscode.window.showWarningMessage(
+        `要撤销最近一次修改吗？\n\n${preview}`,
+        { modal: true },
+        '撤销最近一次',
+        '查看全部记录',
+        '取消',
+      );
+
+      if (action === '查看全部记录') {
+        const lines = all
+          .map(
+            (c) =>
+              `${c.restored ? '[已还原]' : '[可还原]'} ${new Date(c.ts).toLocaleString('zh-CN')} ` +
+              `${c.tool} — ${c.files.map((f) => f.path).join(', ')}`,
+          )
+          .join('\n');
+        vscode.window.showInformationMessage(
+          `本次会话共 ${all.length} 条修改记录，完整列表见「输出 → Mini-Coder」`,
+        );
+        lines.split('\n').forEach((l) => info(l));
+        return { message: `📋 共 ${all.length} 条记录，已输出到日志面板`, success: true };
+      }
+
+      if (action !== '撤销最近一次') {
+        return { message: '已取消', success: true };
+      }
+
+      const { result } = restoreLatest();
+      if (!result.ok) {
+        return { message: `⚠ ${result.message}`, success: false };
+      }
+      return { message: `↩️ ${result.message}`, success: true };
+    },
+  },
+  {
+    name: 'sessions',
+    description: '列出当前工作区的历史会话',
+    handler: async () => {
+      await vscode.commands.executeCommand('mini-coder.listSessions');
+      return {
+        message: '📂 历史会话列表已输出到「输出 → Mini-Coder」面板。\n也可以在命令面板跑「Mini-Coder: 恢复历史会话」直接切换。',
+        success: true,
+      };
     },
   },
 ];

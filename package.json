@@ -56,6 +56,14 @@
         "title": "Mini-Coder: 查看今日错题本"
       },
       {
+        "command": "mini-coder.restoreSession",
+        "title": "Mini-Coder: 恢复历史会话"
+      },
+      {
+        "command": "mini-coder.listSessions",
+        "title": "Mini-Coder: 列出历史会话"
+      },
+      {
         "command": "mini-coder.doctor",
         "title": "Mini-Coder: 环境自检"
       },

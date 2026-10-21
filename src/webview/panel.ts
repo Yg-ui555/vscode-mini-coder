@@ -20,6 +20,9 @@ import { ContextBuilder } from '../agent/context';
 import { runSlashCommand, listSlashCommands } from '../slashCommands/registry';
 import { toUserView } from '../errors';
 import { info, warn, error as logError } from '../logger';
+import { SessionStore } from '../session/store';
+import { setCheckpointSession } from '../agent/checkpoint/store';
+import { formatUsage } from '../util/tokens';
 
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
@@ -32,6 +35,8 @@ export class ChatPanel {
   private _messages: any[] = [];
   // ⭐ 中断控制器：前端点"停止" → abort() → provider 的 fetch 和 shell 子进程都会被取消
   private _abortController: AbortController | undefined;
+  // ⭐ 会话持久化：对话落盘，关掉 VS Code 再打开还在
+  private readonly _sessionStore: SessionStore;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -43,6 +48,23 @@ export class ChatPanel {
     this._extensionUri = extensionUri;
     this._extensionContext = extensionContext;
     this._configManager = configManager;
+
+    // 会话按工作区隔离存储（借鉴 nanobot 的三层 workspace 分离）
+    const wsPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    this._sessionStore = new SessionStore(extensionContext.storageUri?.fsPath ?? '', wsPath);
+
+    // checkpoint 跟着会话走 —— 这样 VS Code 重开后 /undo 仍然有效
+    setCheckpointSession(this._sessionStore.currentSessionId);
+
+    // 恢复上次会话（如果有内容）
+    const loaded = this._sessionStore.load();
+    if (loaded.messages.length > 0) {
+      this._messages = loaded.messages;
+      info(
+        `已恢复上次会话 ${loaded.meta?.id}：${loaded.messages.length} 条消息` +
+          `（${loaded.meta?.updatedAt ? new Date(loaded.meta.updatedAt).toLocaleString('zh-CN') : '未知时间'}）`,
+      );
+    }
 
     this._panel.webview.html = this._getHtml();
 
@@ -99,6 +121,10 @@ export class ChatPanel {
         // Webview 准备就绪，告诉它当前状态 + slash command 列表
         this._postMessage({ type: 'status', content: 'ready' });
         this._postMessage({ type: 'slash_commands', commands: listSlashCommands() });
+        // ⭐ 把已恢复的历史灌给前端
+        //   不发这一条的话，会话虽然在磁盘上，但用户打开面板看到的是空白，
+        //   等于白存。前端对应的 case 在 ChatPanel.tsx 里。
+        this._postMessage({ type: 'history', messages: this._messagesToWebview() });
         break;
       case 'user_input':
         await this._runAgent(msg.content);
@@ -114,11 +140,13 @@ export class ChatPanel {
         }
         break;
       case 'new_session':
-        // 清空对话，重新加载 system prompt
+        // 开一个新会话：内存清空 + 落盘指针切换 + checkpoint 换新会话目录
         this._messages = [];
         this._abortController?.abort();
+        this._sessionStore.startNew();
+        setCheckpointSession(this._sessionStore.currentSessionId);
         this._postMessage({ type: 'clear' });
-        info('用户开启了新会话');
+        info(`用户开启了新会话：${this._sessionStore.currentSessionId}`);
         break;
       case 'run_command':
         // Webview 点 toast 修复按钮触发（如 "去设置"）
@@ -187,7 +215,7 @@ export class ChatPanel {
     const registry = createDefaultRegistry();
     info(`已加载 ${registry.names.length} 个工具：${registry.names.join(', ')}`);
 
-    const loop = new AgentLoop(provider, registry, 20);
+    const loop = new AgentLoop(provider, registry, 20, configured.config.defaultModel);
 
     // 3. 拼 messages
     if (this._messages.length === 0) {
@@ -197,6 +225,11 @@ export class ChatPanel {
       this._messages.push({ role: 'system', content: systemPrompt });
     }
     this._messages.push({ role: 'user', content: userInput });
+
+    // ⭐ 先把"用户问了什么"落盘，再去调 LLM
+    //   这样即使中途崩了 / 被中断，重开后还能看到用户提过什么需求，
+    //   不会变成"什么都没发生过"。
+    await this._persistSession(configured);
 
     // 4. 跑主循环（带中断能力）
     this._abortController = new AbortController();
@@ -211,6 +244,10 @@ export class ChatPanel {
             result: result.content.slice(0, 1000),
             isError: !!result.isError,
           }),
+        // ⭐ 上下文用量实时回传，让用户看得见"还剩多少"
+        onCompact: (msg) => this._postMessage({ type: 'text', content: `\n${msg}\n` }),
+        onUsage: (used, window) =>
+          this._postMessage({ type: 'usage', content: formatUsage(used, window) }),
       });
       this._postMessage({ type: 'final' });
       info('agent.run 完成');
@@ -230,7 +267,101 @@ export class ChatPanel {
       this._postMessage({ type: 'error', content: view.message });
     } finally {
       this._abortController = undefined;
+      // ⭐ 无论成功、失败还是被中断，都把当前对话存下来
+      //   中断的场景尤其重要 —— 用户点"停止"然后关掉面板是高频操作。
+      await this._persistSession(configured);
     }
+  }
+
+  /**
+   * 从磁盘重新加载当前会话并刷新前端
+   *
+   * 用于「命令面板切换了会话 → 面板内容跟着变」这个场景。
+   * 面板自己持有的 _sessionStore 是创建时读的 currentSessionId，
+   * 命令面板改了磁盘上的 index.json 之后必须主动重载，
+   * 否则会出现"提示切换成功但面板还是旧对话"。
+   */
+  public reloadFromDisk(): void {
+    const store = new SessionStore(
+      this._extensionContext.storageUri?.fsPath ?? '',
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+    );
+    const loaded = store.load();
+    this._messages = loaded.messages;
+    setCheckpointSession(store.currentSessionId);
+    this._postMessage({ type: 'history', messages: this._messagesToWebview() });
+    info(`已重新加载会话 ${store.currentSessionId}：${loaded.messages.length} 条消息`);
+  }
+
+  /** 把当前 messages 落盘（失败只记日志，不打断使用） */
+  private async _persistSession(configured?: { config: { defaultModel: string } }): Promise<void> {
+    try {
+      const provider = await this._configManager.getProvider();
+      const meta = this._sessionStore.save(this._messages, {
+        provider,
+        model: configured?.config.defaultModel,
+      });
+      info(`会话已保存 ${meta.id}：${meta.messageCount} 条消息`);
+    } catch (e: any) {
+      warn(`会话保存失败：${e?.message || e}`);
+    }
+  }
+
+  /**
+   * 把内部 messages 转成前端能直接渲染的形状
+   *
+   * 内部结构里 assistant 消息带 tool_calls、tool 消息带 tool_call_id，
+   * 但前端只需要"角色 + 文本 + 有哪些工具被调用过"，所以这里做一次降维。
+   * 这样恢复历史时不会把一堆原始 JSON 塞给前端。
+   */
+  private _messagesToWebview(): Array<{
+    role: string;
+    content: string;
+    tools?: Array<{ name: string; result?: string; isError?: boolean }>;
+  }> {
+    const out: any[] = [];
+
+    for (const m of this._messages) {
+      // system prompt 不给用户看
+      if (m.role === 'system') continue;
+
+      const text =
+        typeof m.content === 'string'
+          ? m.content
+          : m.content
+            ? JSON.stringify(m.content)
+            : '';
+
+      if (m.role === 'tool') {
+        // 工具结果挂到上一条 assistant 消息的 tools 上
+        const last = out[out.length - 1];
+        const name = m.name || 'tool';
+        if (last && last.tools && last.tools.length > 0) {
+          const t = last.tools[last.tools.length - 1];
+          if (!t.result) {
+            t.result = text.slice(0, 500);
+          }
+        } else {
+          out.push({ role: 'assistant', content: '', tools: [{ name, result: text.slice(0, 500) }] });
+        }
+        continue;
+      }
+
+      const tools = (m.tool_calls || []).map((tc: any) => ({
+        name: tc?.function?.name || tc?.name || 'tool',
+      }));
+
+      if (!text && tools.length === 0) continue;
+
+      if (text && out.length > 0 && out[out.length - 1].role === 'assistant' && tools.length > 0) {
+        // assistant 既说了话又要调工具：合并
+        out[out.length - 1] = { ...out[out.length - 1], tools };
+      } else {
+        out.push({ role: m.role, content: text, ...(tools.length > 0 ? { tools } : {}) });
+      }
+    }
+
+    return out;
   }
 
   /**
