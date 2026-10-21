@@ -21,6 +21,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
+import { resolveInWorkspace, toWorkspaceRelative } from './paths';
+import { requireWriteApproval } from './approval';
 
 interface Edit {
   path?: string;
@@ -71,12 +73,28 @@ export class ApplyPatchTool implements Tool {
         return { content: '每个 edit 必须包含 path 和 action', isError: true };
       }
 
-      const filePath = path.resolve(edit.path);
-      // 用 stat 判断"存在且是文件"（不能只看 access —— 后面 readFile 会 EISDIR 崩溃）
+      // 路径必须落在工作区内（防 LLM 写到工作区外面去）
+      const guard = resolveInWorkspace(edit.path);
+      if (!guard.ok) {
+        return { content: guard.error!, isError: true };
+      }
+      const filePath = guard.resolved;
+
+      // ⭐ 关键修复：同一文件多个 edit 时，必须基于"前一个 edit 改完的结果"继续改。
+      //    否则每个 edit 都从磁盘原文算起，writes.set 互相覆盖，
+      //    最终只有最后一个 edit 生效，但 summaries 会报告"全部成功"——静默丢改动。
+      //    （已实测复现：3 个 edit 全部指向同一文件，只有第 3 个真正写入）
+      const pending = writes.get(filePath);
       const stat = await fs.stat(filePath).catch(() => null);
       const exists = stat?.isFile() ?? false;
-      const original = exists ? await fs.readFile(filePath, 'utf-8') : '';
-      backups.set(filePath, exists ? original : null);
+      const original = pending !== undefined
+        ? pending
+        : (exists ? await fs.readFile(filePath, 'utf-8') : '');
+
+      // backup 只记第一次（磁盘真实原内容），保证回滚能还原到最初状态
+      if (!backups.has(filePath)) {
+        backups.set(filePath, exists ? original : null);
+      }
 
       if (edit.action === 'add') {
         if (!edit.new_text) {
@@ -107,7 +125,9 @@ export class ApplyPatchTool implements Tool {
           };
         }
 
-        const newContent = original.replace(edit.old_text, edit.new_text);
+        // 用函数形式替换：避免 new_text 里的 $& / $1 / $` 被当成正则替换符
+        // （直接 replace(str, str) 时 $ 有特殊含义，会静默篡改用户代码）
+        const newContent = original.replace(edit.old_text, () => edit.new_text!);
         writes.set(filePath, newContent.endsWith('\n') ? newContent : newContent + '\n');
         summaries.push(`~ ${edit.path}`);
       }
@@ -117,13 +137,33 @@ export class ApplyPatchTool implements Tool {
       return { content: `Dry-run OK:\n${summaries.join('\n')}` };
     }
 
+    // ⭐ 写操作确认：让用户知道 AI 要改他的文件（dry_run 不打扰）
+    const approved = await requireWriteApproval(
+      this.name,
+      `将修改 ${writes.size} 个文件：\n${[...writes.keys()]
+        .map((p) => `• ${toWorkspaceRelative(p)}`)
+        .join('\n')}`,
+    );
+    if (!approved) {
+      return {
+        content: '用户拒绝了这次修改请求。不要重复请求同一个改动，先向用户确认需求。',
+        isError: true,
+      };
+    }
+
     // 真写盘 + 失败回滚
     try {
       for (const [filePath, content] of writes) {
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, content, 'utf-8');
       }
-      return { content: `已应用 ${summaries.length} 个 edit:\n${summaries.join('\n')}` };
+      return {
+        content:
+          `已应用 ${summaries.length} 个 edit（涉及 ${writes.size} 个文件）:\n` +
+          `${summaries.join('\n')}\n\n` +
+          `⚠ 后续若要再改这些文件，请用 read_file 重新读取最新内容——` +
+          `old_text 必须匹配文件里的真实文本。`,
+      };
     } catch (e: any) {
       // 回滚
       for (const [filePath, original] of backups) {

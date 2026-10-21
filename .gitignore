@@ -7,3 +7,8 @@ out/
 .notes/
 dist-webview/
 webview-ui/node_modules/
+
+# 评测产物：results.json 会频繁变，不要每跑一次就提交
+# RESULTS.md 建议提交（它是项目对外展示的基线数字）
+eval/results.json
+eval/results-*.json

@@ -27,9 +27,20 @@ export interface ProviderConfig {
   defaultModel: string;
 }
 
+/**
+ * ⚠️ MiniMax 国内/国际是两个完全独立的平台，key 不通用：
+ *   - 国际站（platform.minimax.io）  → https://api.minimax.io/v1
+ *   - 国内站（platform.minimaxi.com） → https://api.minimaxi.com/v1   ← 注意末尾多一个 i
+ *
+ *   国内账号的 key 打到国际站会返回 401 invalid api key (2049)。
+ *   如果你的 key 是在国内站申请的，这里必须用 minimaxi.com。
+ *   （也可以在 .env 里写 MINI_CODER_BASE_URL 显式覆盖）
+ */
 export const PROVIDER_CONFIGS: Record<ProviderName, ProviderConfig> = {
   minimax: {
-    baseUrl: 'https://api.minimax.io/v1',
+    // 默认按【国内站】配置——国内开发者绝大多数是 minimaxi.com 账号。
+    // 国际站用户请在 .env 里设 MINI_CODER_BASE_URL=https://api.minimax.io/v1
+    baseUrl: 'https://api.minimaxi.com/v1',
     defaultModel: 'MiniMax-M3',
   },
   deepseek: {

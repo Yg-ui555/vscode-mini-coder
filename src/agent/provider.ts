@@ -13,7 +13,15 @@
  * - 每段格式：`data: {...json...}\n\n`
  * - fetch + getReader() 异步逐行读，不阻塞事件循环
  * - LLM 每生成一个 token 就推一段，前端能看到打字机效果
+ *
+ * 改进：
+ * - fetch 包到 retry 里（网络抖了自动重试）
+ * - 错误分类（APIError / NetworkError，前端能针对性提示）
  */
+
+import { retry, defaultShouldRetry } from '../retry';
+import { APIError, NetworkError, AuthError, RateLimitError, CreditsExhaustedError, EndpointNotFoundError } from '../errors';
+import { info, warn } from '../logger';
 
 export interface ToolCallRequest {
   id: string;
@@ -56,21 +64,57 @@ export class OpenAIProvider {
       ...(tools.length > 0 ? { tools } : {}),
     };
 
-    const resp = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
+    // 包到 retry 里：网络抖了自动重试（最多 3 次，1s/2s/4s 指数退避）
+    // 4xx 错误（用户配错）不重试，5xx/网络错才重试
+    const resp = await retry(
+      async () => {
+        try {
+          const r = await fetch(`${this.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal,
+          });
+          if (!r.ok) {
+            const errText = await r.text();
+            // 根据 status 抛对应的细分错误（借鉴 goose 的 describe_error）
+            // 类比：发烧细分到"病毒感冒"vs"细菌感冒"——治法不同
+            if (r.status === 401 || r.status === 403) {
+              throw new AuthError(`API Key 无效: ${errText.slice(0, 200)}`);
+            }
+            if (r.status === 429) {
+              // Retry-After header 是秒，转成毫秒
+              const retryAfter = r.headers.get('retry-after');
+              const retryAfterMs = retryAfter
+                ? (Number(retryAfter) > 100 ? Number(retryAfter) : Number(retryAfter) * 1000)
+                : undefined;
+              throw new RateLimitError(`请求太多: ${errText.slice(0, 200)}`, retryAfterMs);
+            }
+            if (r.status === 402) {
+              throw new CreditsExhaustedError(`余额用完: ${errText.slice(0, 200)}`);
+            }
+            if (r.status === 404) {
+              throw new EndpointNotFoundError(`模型不存在: ${errText.slice(0, 200)}`);
+            }
+            // 其他 4xx/5xx 还是普通 APIError
+            throw new APIError(`LLM 错误 ${r.status}: ${errText.slice(0, 200)}`, r.status);
+          }
+          return r;
+        } catch (e: any) {
+          // fetch 本身的网络错误（断网、DNS 失败）包装成 NetworkError
+          if (e instanceof APIError) throw e; // 已经是 APIError 直接抛
+          if (e?.name === 'AbortError') throw e; // 用户主动取消不重试
+          throw new NetworkError(`网络错误：${e?.message || e}`);
+        }
       },
-      body: JSON.stringify(body),
-      signal,
-    });
+      { maxRetries: 3, initialDelayMs: 1000 },
+      defaultShouldRetry,
+    );
 
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`API 错误 ${resp.status}: ${errText.slice(0, 200)}`);
-    }
-    if (!resp.body) throw new Error('响应无 body');
+    if (!resp.body) throw new NetworkError('响应无 body');
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();

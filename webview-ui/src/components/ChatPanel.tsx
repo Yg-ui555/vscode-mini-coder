@@ -8,6 +8,7 @@
  * - tool_result: 工具执行结果
  * - final: agent 完成
  * - error: 错误
+ * - toast: 弹窗提示（带可选修复按钮）
  *
  * 发给 Extension 的消息：
  * - ready: Webview 加载完
@@ -28,12 +29,24 @@ interface SlashCmd {
   argsHint?: string;
 }
 
+interface Toast {
+  id: number;            // 唯一 ID（用来去重 / 清除）
+  level: 'info' | 'warn' | 'error';
+  content: string;
+  action?: {
+    label: string;
+    command: string;
+  };
+}
+
 export function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCmd[]>([]);
+  const [toast, setToast] = useState<Toast | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const toastIdRef = useRef(0);
 
   useEffect(() => {
     // 监听 Extension 发来的消息
@@ -41,7 +54,6 @@ export function ChatPanel() {
       const msg = e.data;
       switch (msg.type) {
         case 'text':
-          // 流式文本：追加到最后一条 assistant 消息
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === 'assistant') {
@@ -90,15 +102,43 @@ export function ChatPanel() {
           setMessages((prev) => [...prev, { role: 'error', content: msg.content }]);
           setIsStreaming(false);
           break;
+        case 'toast':
+          // 弹个小窗（4 秒后自动消失）
+          // 用 id 去重，相同内容不重复弹
+          toastIdRef.current += 1;
+          const newToast: Toast = {
+            id: toastIdRef.current,
+            level: msg.level || 'info',
+            content: msg.content,
+            action: msg.action,
+          };
+          setToast(newToast);
+          setTimeout(() => {
+            setToast((cur) => (cur?.id === newToast.id ? null : cur));
+          }, 5000);
+          break;
         case 'slash_commands':
-          // Extension 推送可用 slash command 列表
           setSlashCommands(msg.commands || []);
           break;
         case 'status':
-          // 状态消息显示在底部（不计入对话历史）
           if (msg.content === 'ready') {
             // 忽略 initial ready
           }
+          break;
+        // ⭐ 这个 case 以前不存在，导致 /solve 命令派发给 agent 的任务被静默丢弃：
+        //   扩展发 user_input 过来，前端 switch 没匹配上 → 什么都没发生，
+        //   但用户已经看到"已派发给 agent"，以为它在跑。
+        case 'user_input':
+          // 扩展端主动派发的任务（比如 /solve LeetCode），
+          // 当成用户输入走一遍发送流程
+          setMessages((prev) => [...prev, { role: 'user', content: msg.content }]);
+          setIsStreaming(true);
+          vscode.postMessage({ type: 'user_input', content: msg.content });
+          break;
+        case 'clear':
+          // 新会话：清空界面消息（扩展端也会清掉它那边的历史）
+          setMessages([]);
+          setIsStreaming(false);
           break;
       }
     };
@@ -116,12 +156,11 @@ export function ChatPanel() {
 
   function handleSend() {
     const text = input.trim();
-    if (!text) return;
+    if (!text || isStreaming) return;
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     setInput('');
     setIsStreaming(true);
 
-    // ⭐ slash command 走独立通道（/test /commit /notes /solve）
     if (text.startsWith('/')) {
       vscode.postMessage({ type: 'slash_command', content: text });
     } else {
@@ -129,8 +168,46 @@ export function ChatPanel() {
     }
   }
 
+  // ⭐ 停止：以前 Agent 一旦跑飞，用户只能关掉整个 VS Code
+  function handleStop() {
+    vscode.postMessage({ type: 'stop' });
+    setIsStreaming(false);
+  }
+
+  // 新会话：清空对话历史，重新加载 system prompt
+  function handleNewSession() {
+    vscode.postMessage({ type: 'new_session' });
+    setMessages([]);
+    setIsStreaming(false);
+    setInput('');
+  }
+
+  // 点 toast 上的"修复按钮"
+  function handleToastAction(action: { label: string; command: string }) {
+    vscode.postMessage({ type: 'run_command', command: action.command });
+    setToast(null); // 点了就关掉
+  }
+
   return (
     <div className="chat-panel">
+      {/* Toast 小弹窗（右上角浮着） */}
+      {toast && (
+        <div className={`toast toast-${toast.level}`}>
+          <div className="toast-content">{toast.content}</div>
+          {toast.action && (
+            <button
+              className="toast-action"
+              onClick={() => handleToastAction(toast.action!)}
+            >
+              {toast.action.label}
+            </button>
+          )}
+          <button className="toast-close" onClick={() => setToast(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="messages">
         {messages.length === 0 && (
           <div className="empty">
@@ -153,6 +230,9 @@ export function ChatPanel() {
                 </ul>
               </>
             )}
+            <p style={{ marginTop: 16, fontSize: 12, opacity: 0.7 }}>
+              💡 出问题时输入 <code>/doctor</code> 自检，或 <code>/logs</code> 复制日志给开发者
+            </p>
           </div>
         )}
         {messages.map((m, i) => (
@@ -166,12 +246,30 @@ export function ChatPanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          placeholder="输入任务（如：把 main.py 改成 async），或 /test /commit /notes /solve"
+          placeholder="输入任务（如：把 main.py 改成 async），或 /test /commit /notes /doctor /logs"
           disabled={isStreaming}
         />
-        <button onClick={handleSend} disabled={isStreaming || !input.trim()}>
-          发送
+        {isStreaming ? (
+          // ⭐ 停止按钮：Agent 跑飞时用户唯一的自救手段
+          <button className="stop-btn" onClick={handleStop} title="中断当前任务">
+            ⏹ 停止
+          </button>
+        ) : (
+          <button onClick={handleSend} disabled={!input.trim()}>
+            发送
+          </button>
+        )}
+      </div>
+      <div className="input-footer">
+        <button
+          className="link-btn"
+          onClick={handleNewSession}
+          disabled={messages.length === 0 && !isStreaming}
+          title="清空对话历史，重新开始"
+        >
+          🗑 新会话
         </button>
+        <span className="hint">Enter 发送 · / 开头的走快捷命令 · /doctor 自检</span>
       </div>
     </div>
   );

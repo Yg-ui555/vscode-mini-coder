@@ -16,6 +16,8 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
 
@@ -27,7 +29,7 @@ export function registerZhCommit(context: vscode.ExtensionContext, configManager
       const configured = await configManager.ensureConfigured();
       if (!configured) return;
 
-      // 拿 git diff
+      // 拿 git diff（含未跟踪的新文件）
       const diff = await getGitDiff();
       if (!diff || diff.includes('no changes added')) {
         vscode.window.showInformationMessage('没有检测到改动');
@@ -39,32 +41,113 @@ export function registerZhCommit(context: vscode.ExtensionContext, configManager
 
       // 复制到剪贴板 + 弹窗
       await vscode.env.clipboard.writeText(message);
+
+      // ⭐ 原来用 `executeCommand('type', {text})` 想把消息打进 SCM 输入框，
+      //   这是不可靠的：type 命令只对【当前聚焦的编辑器】生效，
+      //   而 workbench.scm.acceptInput 打开的 commit 输入框不一定会拿到焦点。
+      //   改成 git commit 命令行方案：真能落地，且可控。
       const action = await vscode.window.showInformationMessage(
         `生成的中文 commit：\n\n${message}\n\n已复制到剪贴板`,
-        '填入 commit 输入框',
+        '直接提交',
+        '打开提交框',
         '取消',
       );
 
-      if (action === '填入 commit 输入框') {
-        // 触发 commit 输入框，把 message 填进去
-        vscode.commands.executeCommand('workbench.scm.acceptInput');
-        // 然后通过 typing 把 message 填进 input
-        await vscode.commands.executeCommand('type', { text: message });
+      if (action === '直接提交') {
+        // 只提交【已暂存】的内容 —— git commit 本身就不会动未 add 的文件，
+        // 所以这里不存在"误提交"的风险；没 add 时 git 会报 no changes added。
+        await new Promise<void>((resolve) => {
+          const child = exec('git commit -F -', { maxBuffer: 5 * 1024 * 1024 }, (err: any, stdout, stderr) => {
+            if (err) {
+              vscode.window.showErrorMessage(
+                `提交失败：${(stderr || err.message || '').split('\n').slice(0, 3).join('\n')}\n\n` +
+                `提示：请先在左侧源代码管理面板点 "+" 暂存文件（git commit 只提交已暂存的内容）。\n` +
+                `message 已复制到剪贴板，可手动粘贴。`,
+              );
+            } else {
+              vscode.window.showInformationMessage(`✓ 已提交\n${(stdout || '').split('\n').slice(0, 2).join('\n')}`);
+            }
+            resolve();
+          });
+          child.stdin?.end(message, 'utf-8');
+        });
+      } else if (action === '打开提交框') {
+        // 粘贴板里已经有 message，用户自己 Ctrl+V，更可靠
+        await vscode.commands.executeCommand('workbench.scm.acceptInput');
+        vscode.window.showInformationMessage('请在输入框里按 Ctrl+V 粘贴（已复制到剪贴板）');
       }
     }),
   );
 }
 
 /**
- * 拿 git diff（未暂存 + 已暂存）
+ * 拿 git diff（未暂存 + 已暂存 + ⭐未跟踪的新文件）
+ *
+ * ⭐ 修复的关键 bug：
+ *   原来只用 `git diff HEAD`，它【看不见未跟踪的新文件】。
+ *   git diff 只比较"git 已记录的版本"和"硬盘上的版本"，
+ *   新建文件在 git 里的状态是 ?? (untracked)，git 根本不知道它存在。
+ *   实测：新建 newfile.py + 改 a.txt → git diff HEAD 只有 a.txt。
+ *   后果：新建功能文件时生成的 commit message 会完全漏掉这个文件，
+ *         这是"新建功能"这个最高频场景被精准打击。
+ *
+ * 做法：
+ *   1. git diff HEAD —— 跟踪文件的改动
+ *   2. git ls-files --others --exclude-standard —— 列出未跟踪文件
+ *   3. 直接读这些文件内容拼成"新文件"段落喂给 LLM
+ *      （不用 git diff --no-index，因为 Windows 上 /dev/null 不存在，容易踩坑）
  */
 async function getGitDiff(): Promise<string> {
+  let diff = '';
   try {
     const { stdout } = await execAsync('git diff HEAD', {
       maxBuffer: 5 * 1024 * 1024, // 5MB
     });
-    return stdout.trim();
-  } catch (e: any) {
+    diff = stdout.trim();
+  } catch {
+    // 非 git 仓库 / 没有 HEAD（首次提交前）→ 下面走 untracked 分支
+  }
+
+  const newFiles = await getUntrackedFiles();
+  return diff + newFiles;
+}
+
+/** 收集未跟踪文件的内容，拼成 LLM 能读的文本 */
+async function getUntrackedFiles(): Promise<string> {
+  try {
+    const { stdout } = await execAsync(
+      'git ls-files --others --exclude-standard',
+      { maxBuffer: 2 * 1024 * 1024 },
+    );
+    const files = stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (files.length === 0) return '';
+
+    // 只取前 30 个文件、每个前 120 行，避免撑爆上下文
+    const LIMIT_FILES = 30;
+    const LIMIT_LINES = 120;
+    const parts: string[] = [`\n\n=== 新增文件（git 尚未跟踪，git diff 看不到它们）===`];
+
+    for (const rel of files.slice(0, LIMIT_FILES)) {
+      try {
+        const abs = path.resolve(process.cwd(), rel);
+        const content = await fs.readFile(abs, 'utf-8');
+        const lines = content.split('\n');
+        const shown = lines.slice(0, LIMIT_LINES);
+        parts.push(
+          `\n--- 新文件: ${rel}（共 ${lines.length} 行${lines.length > LIMIT_LINES ? `，仅显示前 ${LIMIT_LINES} 行` : ''}）---\n${shown.join('\n')}`,
+        );
+      } catch {
+        // 二进制文件 / 读不了 → 跳过
+        parts.push(`\n--- 新文件: ${rel}（无法读取，可能是二进制）---`);
+      }
+    }
+
+    if (files.length > LIMIT_FILES) {
+      parts.push(`\n[... 还有 ${files.length - LIMIT_FILES} 个新文件未列出 ...]`);
+    }
+
+    return parts.join('\n');
+  } catch {
     return '';
   }
 }
@@ -93,8 +176,20 @@ async function generateZhCommit(
     configured.config.defaultModel,
   );
 
-  // 截断 diff（防 token 爆炸）
-  const truncatedDiff = diff.slice(0, 8000);
+  // 截断（防 token 爆炸）。
+  // ⭐ 修复：原来是无脑 slice(0, 8000)，如果新增文件排在后面（现在正是追加在末尾），
+  //   会被整个切掉，等于白改。用「头尾都留」的方式保证新文件信息不丢。
+  const DIFF_BUDGET = 12000;
+  let truncatedDiff: string;
+  if (diff.length <= DIFF_BUDGET) {
+    truncatedDiff = diff;
+  } else {
+    const headLen = Math.floor(DIFF_BUDGET * 0.6);
+    truncatedDiff =
+      diff.slice(0, headLen) +
+      `\n\n[... 省略中间 ${diff.length - DIFF_BUDGET} 字符 ...]\n\n` +
+      diff.slice(-(DIFF_BUDGET - headLen));
+  }
 
   const messages = [
     {

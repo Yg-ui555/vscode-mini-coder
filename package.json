@@ -54,6 +54,22 @@
       {
         "command": "mini-coder.viewNotes",
         "title": "Mini-Coder: 查看今日错题本"
+      },
+      {
+        "command": "mini-coder.doctor",
+        "title": "Mini-Coder: 环境自检"
+      },
+      {
+        "command": "mini-coder.copyLogs",
+        "title": "Mini-Coder: 复制日志到剪贴板"
+      },
+      {
+        "command": "mini-coder.clearLogs",
+        "title": "Mini-Coder: 清空日志"
+      },
+      {
+        "command": "mini-coder.showLogs",
+        "title": "Mini-Coder: 显示日志面板"
       }
     ],
     "configuration": {
@@ -87,7 +103,10 @@
     "build:all": "npm run build:webview && npm run compile",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "eval": "tsc && node out/eval/cli.js",
+    "eval:dry": "tsc && node out/eval/cli.js --dry",
+    "eval:list": "node out/eval/cli.js --list"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

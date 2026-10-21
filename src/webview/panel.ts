@@ -21,23 +21,30 @@ import { ApplyPatchTool } from '../agent/tools/applyPatch';
 import { RunShellTool } from '../agent/tools/runShell';
 import { ContextBuilder } from '../agent/context';
 import { runSlashCommand, listSlashCommands } from '../slashCommands/registry';
+import { toUserView } from '../errors';
+import { info, warn, error as logError } from '../logger';
 
 export class ChatPanel {
   public static currentPanel: ChatPanel | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
+  private readonly _extensionContext: vscode.ExtensionContext;
   private readonly _configManager: ConfigManager;
   private _disposed = false;
   // 多轮对话历史（system + 历史 messages）
   private _messages: any[] = [];
+  // ⭐ 中断控制器：前端点"停止" → abort() → provider 的 fetch 和 shell 子进程都会被取消
+  private _abortController: AbortController | undefined;
 
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
+    extensionContext: vscode.ExtensionContext,
     configManager: ConfigManager,
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
+    this._extensionContext = extensionContext;
     this._configManager = configManager;
 
     this._panel.webview.html = this._getHtml();
@@ -52,7 +59,11 @@ export class ChatPanel {
   /**
    * 创建或显示面板（单例模式——只允许一个聊天窗口）
    */
-  public static createOrShow(extensionUri: vscode.Uri, configManager: ConfigManager) {
+  public static createOrShow(
+    extensionUri: vscode.Uri,
+    extensionContext: vscode.ExtensionContext,
+    configManager: ConfigManager,
+  ) {
     if (ChatPanel.currentPanel) {
       ChatPanel.currentPanel._panel.reveal();
       return;
@@ -70,7 +81,7 @@ export class ChatPanel {
       },
     );
 
-    ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, configManager);
+    ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, extensionContext, configManager);
   }
 
   /**
@@ -98,11 +109,30 @@ export class ChatPanel {
       case 'slash_command':
         await this._handleSlashCommand(msg.content);
         break;
+      case 'stop':
+        // ⭐ 用户点了"停止"
+        if (this._abortController) {
+          this._abortController.abort();
+          info('用户中断了当前任务');
+        }
+        break;
+      case 'new_session':
+        // 清空对话，重新加载 system prompt
+        this._messages = [];
+        this._abortController?.abort();
+        this._postMessage({ type: 'clear' });
+        info('用户开启了新会话');
+        break;
+      case 'run_command':
+        // Webview 点 toast 修复按钮触发（如 "去设置"）
+        await vscode.commands.executeCommand(msg.command);
+        info(`通过 Webview 触发了命令：${msg.command}`);
+        break;
     }
   }
 
   /**
-   * 处理 slash command（/test /commit /notes /solve）
+   * 处理 slash command（/test /commit /notes /solve /doctor /logs）
    *
    * 借鉴自 goose-main/crates/goose/src/slash_commands/
    * 我们走简化路线：内建 4 个 workflow 命令，不支持用户自定义
@@ -112,6 +142,8 @@ export class ChatPanel {
       {
         configManager: this._configManager,
         postMessage: (m) => this._postMessage(m),
+        extensionPath: this._extensionUri.fsPath,
+        extensionContext: this._extensionContext,
       },
       rawInput,
     );
@@ -130,10 +162,19 @@ export class ChatPanel {
    * 跑 agent 主循环（这是 Webview 跟 LLM 通信的核心）
    */
   private async _runAgent(userInput: string) {
+    info(`用户输入：${userInput.slice(0, 100)}${userInput.length > 100 ? '...' : ''}`);
+
     // 1. 加载 LLM 配置
     const configured = await this._configManager.ensureConfigured();
     if (!configured) {
-      this._postMessage({ type: 'error', content: '未配置 API Key，请先点"设置 API Key"' });
+      // 弹 toast + 错误信息（前端 ChatPanel 会显示按钮）
+      this._postMessage({
+        type: 'toast',
+        level: 'error',
+        content: '⚠ 未配置 API Key，请先设置',
+        action: { label: '点我去设置', command: 'mini-coder.setApiKey' },
+      });
+      this._postMessage({ type: 'error', content: '未配置 API Key' });
       return;
     }
 
@@ -143,6 +184,7 @@ export class ChatPanel {
       configured.key,
       configured.config.defaultModel,
     );
+    info(`Provider：${configured.config.baseUrl} / ${configured.config.defaultModel}`);
 
     const registry = new ToolRegistry();
     registry.register(new ReadFileTool());
@@ -161,9 +203,10 @@ export class ChatPanel {
     }
     this._messages.push({ role: 'user', content: userInput });
 
-    // 4. 跑主循环
+    // 4. 跑主循环（带中断能力）
+    this._abortController = new AbortController();
     try {
-      await loop.run(this._messages, undefined, {
+      await loop.run(this._messages, this._abortController.signal, {
         onText: (chunk) => this._postMessage({ type: 'text', content: chunk }),
         onToolCall: (name, args) => this._postMessage({ type: 'tool_call', name, args }),
         onToolResult: (name, result) =>
@@ -175,8 +218,23 @@ export class ChatPanel {
           }),
       });
       this._postMessage({ type: 'final' });
+      info('agent.run 完成');
     } catch (e: any) {
-      this._postMessage({ type: 'error', content: `错误: ${e.message}` });
+      // 用 toUserView 把错误转成"友好提示 + 修复按钮"
+      const view = toUserView(e);
+      logError(`agent.run 失败：${e?.message || e}`, e);
+
+      // 发 toast（醒目小弹窗 + 快捷修复按钮）
+      this._postMessage({
+        type: 'toast',
+        level: 'error',
+        content: view.message,
+        action: view.action,  // 可能 undefined
+      });
+      // 同时在聊天里显示
+      this._postMessage({ type: 'error', content: view.message });
+    } finally {
+      this._abortController = undefined;
     }
   }
 
@@ -202,9 +260,18 @@ npm run build
     }
 
     let html = fs.readFileSync(htmlPath, 'utf-8');
+    const webview = this._panel.webview;
+
+    // 关键修复 1：手动注入 CSP meta，放宽 script-src 让 module script 能加载
+    // VS Code 1.86+ 默认 CSP 太严，module script 会被静默拒绝 → 黑屏
+    const cspSource = webview.cspSource;
+    const metaCsp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${cspSource} 'self' 'unsafe-inline' 'unsafe-eval'; style-src ${cspSource} 'self' 'unsafe-inline'; img-src ${cspSource} 'self' data: https:; font-src ${cspSource} 'self' data:;">`;
+    html = html.replace(/<head>/i, `<head>\n    ${metaCsp}`);
+
+    // 关键修复 2：去掉 crossorigin 属性（VS Code webview 不发 CORS headers，带 crossorigin 会加载失败）
+    html = html.replace(/\s+crossorigin(?=[\s>])/g, '');
 
     // 把相对路径的 CSS/JS 资源转成 webview 可访问的 URI（file://）
-    const webview = this._panel.webview;
     html = html.replace(/(href|src)="\.\/(.*?)"/g, (_match, attr, file) => {
       const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist-webview', file));
       return `${attr}="${uri}"`;

@@ -202,3 +202,129 @@ body {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ========== 停止按钮（Agent 跑飞时的自救手段） ========== */
+.input-area button.stop-btn {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.input-area button.stop-btn:hover {
+  background: #b91c1c;
+}
+
+/* ========== 输入框底部：新建会话 ========== */
+.input-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 8px;
+  background: var(--vscode-panel-background);
+  font-size: 11px;
+}
+
+.input-footer .link-btn {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.input-footer .link-btn:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-foreground);
+}
+.input-footer .link-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.input-footer .hint {
+  color: #6b7280;
+  opacity: 0.8;
+}
+
+/* ========== Toast 小弹窗（错误提示 + 修复按钮） ========== */
+
+.toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  max-width: 480px;
+  animation: slideInRight 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-error {
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  color: var(--vscode-errorForeground, #f87171);
+  border-left: 3px solid var(--vscode-errorForeground, #f87171);
+}
+
+.toast-warn {
+  background: #fbbf24;
+  color: #1f2937;
+  border-left: 3px solid #f59e0b;
+}
+
+.toast-info {
+  background: var(--vscode-notificationToast-background, #2563eb);
+  color: white;
+  border-left: 3px solid #3b82f6;
+}
+
+.toast-content {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-action {
+  background: rgba(255, 255, 255, 0.15);
+  color: inherit;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 14px;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}

@@ -37,17 +37,33 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map(toOpenAISchema);
   }
 
-  /** 统一执行入口 */
-  async execute(name: string, args: any): Promise<ToolResult> {
+  /**
+   * 统一执行入口
+   *
+   * @param signal 可选的中断信号，会透传给工具（比如 run_shell 用来杀子进程）
+   */
+  async execute(name: string, args: any, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
-      return { content: `工具不存在: ${name}`, isError: true };
+      // 抄 nanobot registry.py:110：名字写错要给出"你是不是想用 X"+ 全部可用工具名，
+      // 而不是干巴巴一句"工具不存在"——LLM 看到建议能自己纠正。
+      const available = this.names.join(', ');
+      return {
+        content: `工具不存在: ${name}\n\n可用工具: ${available}\n（工具名必须完全一致，注意不要用中文名）`,
+        isError: true,
+      };
     }
     try {
-      return await tool.execute(args);
+      const result = await tool.execute(signal ? { ...args, signal } : args);
+      return result;
     } catch (e: any) {
+      // ⭐ 统一追加"换策略"提示（抄 nanobot execution.py:50 的 _RETRY_HINT）：
+      //   LLM 看到工具失败时经常原样重试同一个错误参数，白烧 token。
+      //   明确告诉它"换个做法"，自我纠错率明显更高。
       return {
-        content: `${tool.name} 执行失败: ${e?.message || e}`,
+        content:
+          `${tool.name} 执行失败: ${e?.message || e}` +
+          `\n\n[请分析上面的错误并换一个不同的做法，不要原样重试同样的参数]`,
         isError: true,
       };
     }

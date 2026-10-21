@@ -22,11 +22,16 @@ import { ConfigManager } from '../config';
 import { runProjectTests } from '../features/autoTest';
 import { generateZhCommitStandalone } from '../features/zhCommit';
 import { readTodayNotes } from '../features/notes';
+import { runDoctor } from '../commands/doctor';
 
 export interface SlashContext {
   configManager: ConfigManager;
   /** 触发命令时主动通知 Webview */
   postMessage: (msg: any) => void;
+  /** 扩展根目录路径（用于 /doctor 检查文件） */
+  extensionPath: string;
+  /** VS Code ExtensionContext（用于 /doctor） */
+  extensionContext: vscode.ExtensionContext;
 }
 
 export interface SlashResult {
@@ -105,6 +110,22 @@ const COMMANDS: SlashCommand[] = [
 完成后报告：时间复杂度、空间复杂度、关键思路。`;
       ctx.postMessage({ type: 'user_input', content: taskPrompt });
       return { message: `🧮 已派发给 agent 跑 LeetCode: ${query}`, success: true };
+    },
+  },
+  {
+    name: 'doctor',
+    description: '自检配置（API Key / Provider / Webview 构建 / 编译）',
+    handler: async (ctx) => {
+      const report = await runDoctor(ctx.extensionContext, ctx.configManager);
+      return { message: report, success: true };
+    },
+  },
+  {
+    name: 'logs',
+    description: '把当前日志复制到剪贴板（出问题时给开发者）',
+    handler: async () => {
+      await vscode.commands.executeCommand('mini-coder.copyLogs');
+      return { message: '✓ 日志已复制到剪贴板', success: true };
     },
   },
 ];
