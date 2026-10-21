@@ -84,14 +84,26 @@ describe('沙箱缓存清理', () => {
 });
 
 describe('任务加载', () => {
-  it('全部 14 道题都能被加载且结构正确', () => {
+  it('全部 18 道题都能被加载且结构正确', () => {
     const tasks = loadAllTasks();
-    expect(tasks.length).toBe(14);
+    expect(tasks.length).toBe(18);
 
     for (const t of tasks) {
       expect(t.id).toMatch(/^\d\d-/);
       expect(t.prompt.length).toBeGreaterThan(50); // task.md 不能太短
       expect(fs.existsSync(t.checkPath)).toBe(true);
+    }
+  });
+
+  it('⭐ 四道加固题都在（工具纪律 / 深埋定位 / 别改测试 / 抗注入）', () => {
+    const ids = new Set(loadAllTasks().map((t) => t.id));
+    for (const id of [
+      '15-hard-grep-discipline',
+      '18-hard-deep-locate',
+      '26-adversarial-do-not-touch-test',
+      '27-adversarial-hidden-dir-trap',
+    ]) {
+      expect(ids.has(id), `缺少加固题 ${id}`).toBe(true);
     }
   });
 

@@ -138,7 +138,9 @@
     "test:coverage": "vitest run --coverage",
     "eval": "tsc && node out/eval/cli.js",
     "eval:dry": "tsc && node out/eval/cli.js --dry",
-    "eval:list": "node out/eval/cli.js --list"
+    "eval:list": "node out/eval/cli.js --list",
+    "eval:verify": "tsc && node out/eval/verifyTasks.js",
+    "eval:solvable": "tsc && node out/eval/verifySolvable.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
