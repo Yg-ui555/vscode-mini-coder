@@ -18,7 +18,7 @@ import { exec, spawn } from 'child_process';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, getDefaultCwd } from './paths';
-import { confirmShellCommand } from './approval';
+import { approveToolCall, detectDangerousCommand } from './approval';
 import { execMeta } from './meta';
 
 const MAX_OUTPUT_CHARS = 30000;
@@ -71,16 +71,35 @@ export class RunShellTool implements Tool {
       cwd = guard.resolved;
     }
 
-    // ⭐ 危险命令确认（rm -rf /、git push --force 这类会真出事的）
+    // ⭐ 权限决策（exec 类）
+    //   askWrites 档 → 只有命中高危特征才打断用户；
+    //   askAll 档     → 每一条命令都逐条确认；
+    //   readOnly 档   → 直接拒绝，命令根本不会执行。
+    //   RISKY_PATTERNS 命中时只是把风险点写进摘要，让用户一眼看到为什么被拦。
     const risky = RISKY_PATTERNS.filter((r) => r.pattern.test(args.command));
-    if (risky.length > 0) {
-      const confirm = await confirmShellCommand(args.command);
-      if (!confirm.approved) {
-        return {
-          content: '用户拒绝了这条命令的执行。不要重复请求，先向用户说明这条命令会做什么。',
-          isError: true,
-        };
-      }
+    const danger = detectDangerousCommand(args.command);
+
+    const notes = [
+      danger ? `高危：${danger}` : null,
+      ...risky.map((r) => `注意：${r.note}`),
+    ].filter(Boolean);
+
+    const decision = await approveToolCall({
+      toolName: this.name,
+      meta: this.meta,
+      command: args.command,
+      summary:
+        (args.working_dir ? `$ cd ${args.working_dir}\n` : '') +
+        `$ ${args.command}` +
+        (notes.length ? `\n\n${notes.map((n) => '• ' + n).join('\n')}` : ''),
+    });
+    if (!decision.approved) {
+      return {
+        content:
+          decision.reason ||
+          '用户拒绝了这条命令的执行。不要重复请求，先向用户说明这条命令会做什么。',
+        isError: true,
+      };
     }
 
     if (args.signal?.aborted) {

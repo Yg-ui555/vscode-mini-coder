@@ -22,6 +22,7 @@ import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, getDefaultCwd, toWorkspaceRelative } from './paths';
 import { writeMeta } from './meta';
+import { approveToolCall } from './approval';
 import { latestCheckpointFor, restoreCheckpoint, listCheckpoints } from '../checkpoint/store';
 
 export class RestoreFileTool implements Tool {
@@ -93,6 +94,20 @@ export class RestoreFileTool implements Tool {
         };
       }
       cpId = cp.id;
+    }
+
+    // ⭐ 权限决策：还原也是写操作（会覆盖/删除文件），
+    //   在只读档下必须被拦住 —— 否则 agent 能通过"删了再还原"绕过只读限制。
+    const decision = await approveToolCall({
+      toolName: this.name,
+      meta: this.meta,
+      summary: `将还原修改记录 ${cpId}，受影响文件：${relPath}`,
+    });
+    if (!decision.approved) {
+      return {
+        content: decision.reason || '用户拒绝了这次还原操作。',
+        isError: true,
+      };
     }
 
     const result = restoreCheckpoint(cpId);

@@ -19,7 +19,7 @@ import { ApplyPatchTool } from '../../agent/tools/applyPatch';
 import { WriteFileTool } from '../../agent/tools/writeFile';
 import { ReadFileTool } from '../../agent/tools/readFile';
 import { setWorkspaceRoot } from '../../agent/tools/paths';
-import { setApprovalMode, resetApprovals } from '../../agent/tools/approval';
+import { setNonInteractive, resetApprovals } from '../../agent/tools/approval';
 
 let tmpDir: string;
 
@@ -28,7 +28,7 @@ beforeEach(async () => {
   // ⭐ 必须设工作区根目录，否则路径白名单会退化成"不检查"
   setWorkspaceRoot(tmpDir);
   // 测试环境没有真实弹窗，自动放行（越界拦截仍由白名单负责）
-  setApprovalMode('auto');
+  setNonInteractive(true);
   resetApprovals();
 });
 

@@ -24,6 +24,12 @@ import { appendNoteEntry, NoteFileChange } from '../../util/notesStore';
 export class RecordNoteTool implements Tool {
   readonly name = 'record_note';
   // 写的是 .notes/ 目录，不碰用户代码，所以按只读对待（自动放行）
+  //
+  // ⭐ 注意这不是漏标：只读档（readOnly）下这个工具依然可用，是有意为之。
+  //   只读档的语义是"不许动【我的代码】"，而 .notes/ 是插件自己的笔记本，
+  //   属于插件的内部状态。把它一起禁掉，用户就失去了"让 agent 复盘学到了什么"
+  //   这条唯一的出口——而只读档恰恰是最需要这个能力的场景（不敢让它改代码时）。
+  //   真正不能碰的是 .notes/ 里的内容不被 agent 以外的东西篡改，不是"不许写"。
   readonly meta = readOnlyMeta();
   readonly description =
     '往今天的错题本（.notes/今天.md）写一条记录。\n\n' +

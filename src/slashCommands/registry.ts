@@ -123,6 +123,17 @@ const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: 'permissions',
+    description: '查看/切换权限档位（只读 / 写入需确认 / 全部需确认）',
+    handler: async () => {
+      const { tierReport } = require('../commands/permissions');
+      // 直接把 QuickPick 打开：用户打这个命令多半就是想改，不是只想看。
+      // 不想改的话按 ESC 掉出来，下面的说明文字照样能看见。
+      await vscode.commands.executeCommand('mini-coder.setApprovalMode');
+      return { message: tierReport(), success: true };
+    },
+  },
+  {
     name: 'logs',
     description: '把当前日志复制到剪贴板（出问题时给开发者）',
     handler: async () => {

@@ -16,6 +16,10 @@ import { registerNotes } from './features/notes';
 import { ChatPanel } from './webview/panel';
 import { registerDoctor } from './commands/doctor';
 import { registerSessionCommands } from './commands/sessions';
+import {
+  loadApprovalTier,
+  registerPermissionCommands,
+} from './commands/permissions';
 import { resetApprovals } from './agent/tools/approval';
 import { setWorkspaceRoot } from './agent/tools/paths';
 import { initLogger, info, error as logError, getAllLogs, clearLogs } from './logger';
@@ -35,6 +39,10 @@ export async function activate(context: vscode.ExtensionContext) {
   const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   setWorkspaceRoot(wsRoot);
   info(`工作区：${wsRoot ?? '（未打开文件夹，仅允许相对路径）'}`);
+
+  // ⭐ 三档权限：先把设置里的档位读进权限模块，
+  //   否则用户在设置界面/状态栏切了档，工具层根本不知道。
+  loadApprovalTier(context);
 
   // 注册 3 个特色
   registerAutoTest(context, configManager);
@@ -67,6 +75,16 @@ export async function activate(context: vscode.ExtensionContext) {
   statusBar.show();
   context.subscriptions.push(statusBar);
   info('状态栏入口已注册：Mini-Coder');
+
+  // ⭐ 权限档位状态栏（紧挨着上面那个，点一下就切档）
+  //   为什么单独开一项而不是把权限塞进聊天面板：
+  //   权限是一个"随时可能需要改的安全开关"，必须在任何界面下都能一眼看到、
+  //   一点就改。藏在聊天面板里等于没有。
+  const permBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  permBar.command = 'mini-coder.setApprovalMode';
+  context.subscriptions.push(permBar);
+  registerPermissionCommands(context, permBar);
+  info('权限档位状态栏已注册');
 
   // 注册设置 Key 命令
   context.subscriptions.push(

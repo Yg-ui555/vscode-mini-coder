@@ -50,19 +50,60 @@ export interface ToolMeta {
 
   /** 执行前是否需要先存文件快照 */
   needsCheckpoint: boolean;
+
+  /**
+   * ⭐ 工具类别 —— 三档权限分级靠它，不是靠 readOnly 反推
+   *
+   * 为什么需要单独一个字段：
+   *   write_file 和 run_shell 的 readOnly 都是 false、destructive 都是 true，
+   *   只靠这两个字段区分不出「改文件」和「执行任意命令」。
+   *   而这两者在权限上必须是两件事：
+   *     改文件 —— 改了能撤回（有 checkpoint），风险可控
+   *     跑命令 —— 可能 rm -rf、可能推远端，改了撤不回来
+   *
+   *   所以把「副作用的种类」显式标出来，别让权限层去猜。
+   */
+  kind: ToolKind;
 }
+
+/**
+ * 工具的三种类别
+ *
+ *  read  —— 只读，无副作用，任何档位都自动放行
+ *  write —— 改工作区里的文件，有 checkpoint 兜底
+ *  exec  —— 执行外部命令，副作用在 agent 控制之外
+ */
+export type ToolKind = 'read' | 'write' | 'exec';
 
 /** 便捷构造：只读工具 */
 export function readOnlyMeta(concurrentSafe = true): ToolMeta {
-  return { readOnly: true, destructive: false, concurrentSafe, needsCheckpoint: false };
+  return {
+    readOnly: true,
+    destructive: false,
+    concurrentSafe,
+    needsCheckpoint: false,
+    kind: 'read',
+  };
 }
 
 /** 便捷构造：写入类工具（要确认 + 要 checkpoint） */
 export function writeMeta(): ToolMeta {
-  return { readOnly: false, destructive: true, concurrentSafe: false, needsCheckpoint: true };
+  return {
+    readOnly: false,
+    destructive: true,
+    concurrentSafe: false,
+    needsCheckpoint: true,
+    kind: 'write',
+  };
 }
 
 /** 便捷构造：执行类工具（要确认，checkpoint 只在显式动文件时才有意义） */
 export function execMeta(needsCheckpoint = false): ToolMeta {
-  return { readOnly: false, destructive: true, concurrentSafe: false, needsCheckpoint };
+  return {
+    readOnly: false,
+    destructive: true,
+    concurrentSafe: false,
+    needsCheckpoint,
+    kind: 'exec',
+  };
 }

@@ -29,7 +29,7 @@ import { ToolRegistry } from '../agent/tools/registry';
 import { createDefaultRegistry } from '../agent/tools/factory';
 import { ContextBuilder } from '../agent/context';
 import { setWorkspaceRoot } from '../agent/tools/paths';
-import { setApprovalMode } from '../agent/tools/approval';
+import { setNonInteractive } from '../agent/tools/approval';
 import { setEvalWorkspace } from './shim';
 import { setCheckpointEnabled } from '../agent/checkpoint/store';
 import { addUsage, emptyUsage, estimateCost, CostBreakdown } from '../util/cost';
@@ -90,8 +90,13 @@ export interface EvalConfig {
   maxIterations: number;
   /** 单题超时（毫秒） */
   timeoutMs: number;
-  /** 评测里把写操作确认设成什么模式 */
-  approvalMode: 'auto' | 'ask';
+  /**
+   * 评测是非交互环境，写操作一律自动放行（不能弹窗打断跑批）
+   *
+   * ⚠️ 这不是把权限全开了：路径白名单、checkpoint 开关这些边界在评测里照常生效，
+   *   自动放行的只是「问不问用户」这一层。真要测权限行为得另开专门机制。
+   */
+  nonInteractive: boolean;
 }
 
 /**
@@ -175,7 +180,7 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     // 让工具层认为沙箱就是工作区（路径白名单才会放行题目目录）
     setWorkspaceRoot(sandbox);
     setEvalWorkspace(sandbox);
-    setApprovalMode(config.approvalMode);
+    setNonInteractive(config.nonInteractive);
     // ⭐ 沙箱里关掉 checkpoint：它会在 sandbox 下造出 .mini-coder/ 目录，
     //    而 eval/types.ts 的 listFiles() 不忽略任何目录，会把这些存档
     //    算进"agent 改了哪些文件"，污染 L4 回归检测的证据链。

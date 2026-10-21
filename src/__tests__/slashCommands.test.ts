@@ -54,9 +54,9 @@ describe('parseSlashCommand', () => {
 
 describe('listSlashCommands', () => {
   // 2026-10-21 新增 /undo（撤销 AI 改动）和 /sessions（历史会话），6 → 8
-  it('should return all 8 built-in commands', () => {
+  it('should return all 9 built-in commands', () => {
     const cmds = listSlashCommands();
-    expect(cmds.length).toBe(8);
+    expect(cmds.length).toBe(9);
   });
 
   it('should include expected command names', () => {

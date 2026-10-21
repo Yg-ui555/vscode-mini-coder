@@ -23,13 +23,13 @@
 
 import * as os from 'os';
 import { setWorkspaceRoot } from '../agent/tools/paths';
-import { setApprovalMode, resetApprovals } from '../agent/tools/approval';
+import { setNonInteractive, resetApprovals } from '../agent/tools/approval';
 
 // 测试用工作区根 = 系统临时目录
 setWorkspaceRoot(os.tmpdir());
 
 // 测试环境跳过写操作确认弹窗
-setApprovalMode('auto');
+setNonInteractive(true);
 
 // 每个测试之间清空"本次会话已授权"记录，避免互相污染
 resetApprovals();

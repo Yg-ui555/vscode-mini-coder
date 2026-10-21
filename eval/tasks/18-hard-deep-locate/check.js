@@ -15,7 +15,7 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
+const { listFiles, fileSha } = require('../../shared');
 
 const SHA = {
   'src/services/audit/format.js': '84febdef5771d96d',
@@ -27,20 +27,19 @@ const SHA = {
 const PROFILE = 'src/services/account/profile/format.js';
 
 function sha16(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16);
+  return fileSha(file);
 }
 
-/** 递归列出所有文件（相对路径），用于断言文件集合没变 */
-function listAll(dir, prefix = '') {
-  const out = [];
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const rel = prefix ? `${prefix}/${e.name}` : e.name;
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...listAll(full, rel));
-    else out.push(rel);
-  }
-  return out.sort();
-}
+/**
+ * ⭐ listFiles() 默认【不含】.notes/ 和 .mini-coder/，这正是这里想要的
+ *
+ * 这两个目录是插件自己的簿记：agent 调 record_note 往 .notes/ 写一条笔记，
+ * 那是【产品的正常功能】，不是它乱动了别人的东西。
+ * 2026-10-21 第一次跑这道题时用的是「列出所有文件」，agent 记了条错题本，
+ * 就被文件集合断言判成了 regressed —— 典型的"测量工具的 bug 比被测对象更可怕"：
+ * agent 做对了却被判成弄坏了东西，而真正的 bug（断言写错了）反倒被藏了起来。
+ * 详见 eval/shared.js 顶部的说明。
+ */
 
 module.exports = {
   taskId: '18-hard-deep-locate',
@@ -194,7 +193,7 @@ module.exports = {
       name: '【副作用】文件集合、其余文件、另外两页输出全部不变',
       fn: ({ dir }) => {
         assert.deepStrictEqual(
-          listAll(dir),
+          listFiles(dir),
           [
             'index.js',
             'src/app.js',

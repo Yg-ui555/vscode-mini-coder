@@ -22,7 +22,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, toWorkspaceRelative } from './paths';
-import { requireWriteApproval } from './approval';
+import { approveToolCall } from './approval';
 import { writeMeta } from './meta';
 import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
 
@@ -151,18 +151,19 @@ export class ApplyPatchTool implements Tool {
       [...backups.entries()].map(([absPath, before]) => ({ absPath, before })),
     );
 
-    // ⭐ 写操作确认：让用户知道 AI 要改他的文件（dry_run 不打扰）
-    const approved = await requireWriteApproval(
-      this.name,
-      `将修改 ${writes.size} 个文件：\n${[...writes.keys()]
+    // ⭐ 权限决策：只读档会直接拒，askWrites/askAll 会弹窗确认（dry_run 不打扰）
+    const decision = await approveToolCall({
+      toolName: this.name,
+      meta: this.meta,
+      summary: `将修改 ${writes.size} 个文件：\n${[...writes.keys()]
         .map((p) => `• ${toWorkspaceRelative(p)}`)
         .join('\n')}`,
-    );
-    if (!approved) {
-      // 用户拒绝了 —— 刚存的快照没有意义，清掉避免污染 undo 历史
+    });
+    if (!decision.approved) {
+      // 被拒 —— 刚存的快照没有意义，清掉避免污染 undo 历史
       if (cpId) discardCheckpoint(cpId);
       return {
-        content: '用户拒绝了这次修改请求。不要重复请求同一个改动，先向用户确认需求。',
+        content: decision.reason || '用户拒绝了这次修改请求。不要重复请求同一个改动，先向用户确认需求。',
         isError: true,
       };
     }

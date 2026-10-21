@@ -27,6 +27,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigManager, PROVIDER_CONFIGS } from '../config';
+import { getApprovalTier, TIER_INFO, blockedToolsIn } from '../agent/tools/approval';
 import { info, warn } from '../logger';
 
 export async function runDoctor(
@@ -89,6 +90,9 @@ export async function runDoctor(
   // 6. ⭐ 工具注册检查 —— 覆盖写文件时如果白名单没配好会在这里暴露
   checks.push(await checkToolRegistration());
 
+  // 7. ⭐ 权限档位 —— 用户最需要随时知道"现在它能对我做什么"
+  checks.push(describeApprovalTier());
+
   // 输出报告
   const lines = checks.map((c) => {
     const icon = c.ok ? '✅' : '❌';
@@ -117,6 +121,41 @@ export async function runDoctor(
 
   info(`Doctor 报告：${failCount === 0 ? '一切正常' : `${failCount} 个问题`}`);
   return report;
+}
+
+/**
+ * 当前权限档位 + 这一档到底拦哪些工具
+ *
+ * 为什么单列一项：用户问得最多的就是"它现在会不会改我的文件"。
+ * /doctor 应该能一句话回答，而不是让人去翻设置界面。
+ */
+function describeApprovalTier(): { name: string; ok: boolean; detail: string } {
+  const tier = getApprovalTier();
+  const info_ = TIER_INFO[tier];
+
+  let metas: Record<string, any> = {};
+  try {
+    const { createDefaultRegistry } = require('../agent/tools/factory');
+    const registry = createDefaultRegistry();
+    for (const name of registry.names) {
+      const tool = (registry as any).get?.(name);
+      if (tool?.meta) metas[name] = tool.meta;
+    }
+  } catch {
+    // 拿不到就只显示档位本身
+  }
+
+  const blocked = Object.keys(metas).length ? blockedToolsIn(tier, metas) : [];
+
+  return {
+    name: '权限档位',
+    ok: true, // 任何档位都是合法配置，不算"问题"
+    detail:
+      `${info_.label} —— ${info_.summary}\n` +
+      `           只读工具（read_file / grep / glob / list_dir）在任何档位都不弹窗\n` +
+      (blocked.length ? `           本档需要确认：${blocked.join(', ')}` : '           本档不拦截任何工具') +
+      `\n           切换：命令面板 → "Mini-Coder: 权限档位"，或点状态栏的权限项`,
+  };
 }
 
 /** 检查工具能否正常实例化（捕获构造期异常，比如白名单配置错误） */

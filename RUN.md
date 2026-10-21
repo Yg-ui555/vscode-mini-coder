@@ -8,7 +8,7 @@
 cd D:/projects/vscode-mini-coder
 npm run compile         # 应该 tsc 干净通过
 npm run build:webview   # 应该 vite build 成功
-npm test                # 应该 15/15 全绿
+npm test                # 应该 225/225 全绿
 ```
 
 如果任何一步失败，先解决再按 F5。
@@ -30,9 +30,10 @@ code D:/projects/vscode-mini-coder
 
 - VS Code 自动调用 `.vscode/launch.json` 配置
 - 新窗口标题栏会显示 `[Extension Development Host]`
-- **主窗口右下角状态栏**会出现 `$(sparkle) Mini-Coder`，点它直接打开聊天面板
+- **主窗口右下角状态栏**会出现两项：`$(sparkle) Mini-Coder`（点它打开聊天面板）
+  和紧挨着它的**权限档位**（`$(shield-half) 写入需确认`，点它切换只读 / 写入需确认 / 全部需确认）
 - 验证：开发者工具 → Console 应该看到 `Mini-Coder 激活` 日志，
-  以及「输出 → Mini-Coder」里的 `状态栏入口已注册：Mini-Coder`
+  以及「输出 → Mini-Coder」里的 `状态栏入口已注册：Mini-Coder` 和 `权限档位状态栏已注册`
 
 **如果没看到**：打开主窗口的 Output → "Extension Host" 看错误。
 
@@ -131,6 +132,9 @@ echo "// test" >> src/test.txt
 - [ ] ⭐ 搜索工具：让 agent 找一个符号的定义处，应显示 `grep` 调用并给出 `文件:行号`
 - [ ] ⭐ `/undo`：让 agent 改一个文件 → 执行 `/undo` → 文件恢复原样
 - [ ] ⭐ 会话持久化：聊几句 → 关掉 VS Code → 重开 → 面板里对话还在
+- [ ] ⭐ 权限档位：状态栏切到 **只读** → 让 agent 改文件 → 应被拒绝且文件没变；
+      再切回 **写入需确认** → 改文件应弹窗确认
+- [ ] ⭐ `/permissions` 列出三档并标出当前档位；`/doctor` 里也能看到档位和本档拦哪些工具
 - [ ] Agent 自然语言任务：能调工具完成任务
 
 ## 8. 常见问题排查

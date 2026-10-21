@@ -28,9 +28,10 @@ MINI_CODER_MODEL=MiniMax-M3
 然后：
 
 ```bash
-npm run eval                      # 跑全部 14 题
+npm run eval                      # 跑全部 18 题
 npm run eval -- 01 21 23          # 只跑指定题（按编号前缀）
 npm run eval -- --list            # 只列题目，不跑
+npm run eval -- --dry             # 不调真实 LLM（不花钱，只验证框架链路）
 ```
 
 ### 2. 看报告
@@ -40,14 +41,28 @@ npm run eval -- --list            # 只列题目，不跑
 
 ---
 
-## 成本估算
+## 成本与用量（报告里直接有）
+
+报告现在会统计**真实 token**（provider 端 `stream_options.include_usage` 返回的，
+不是按字符数估算的）和按模型价目表算出的成本：
+
+| 指标 | 说明 |
+|---|---|
+| 总 token / 总成本 | 全题合计，输入输出分开列 |
+| 单题均摊 | 总成本 ÷ 题数 |
+| **每通过一题** | 总成本 ÷ 通过数 —— 横向比较两个方案时比总成本更有意义 |
+| 最贵 3 题 | 带 LLM 轮数。**贵的题不一定是难题**，更常见是 agent 在原地打转，每轮都把全量上下文重发一遍 |
+
+判读要点：**轮数比 token 更值得盯**。轮数一多，token 就线性涨。
+
+实跑参考（deepseek-chat，18 题）：
 
 | 项 | 数值 |
 |---|---|
-| 单题 LLM 轮次 | 5~20 轮（看任务难度） |
-| 单题 token | 约 30k~80k |
-| 14 题总 token | 约 0.5M~1M |
-| DeepSeek-chat 成本 | **约 ¥1~3** |
+| 单题 LLM 轮次 | 6~20 轮 |
+| 单题 token | 约 25k~120k |
+| 18 题总 token | 约 1M |
+| DeepSeek-chat 成本 | **约 ¥2~3** |
 | 耗时 | 5~15 分钟 |
 
 **不贵，但也不是零。** 反复调 prompt 时优先用 `--dry`，确认链路没问题了再真跑。
@@ -147,7 +162,7 @@ module.exports = {
 | `transcript` | 工具调用轨迹 `{ tool, args, isError, preview }[]` |
 | `task` | 任务元数据 |
 
-### ⭐ 出题三条铁律
+### ⭐ 出题四条铁律
 
 1. **必须可自动判定**，不许用 LLM 打分。断言是二值的（抛异常 / 不抛），这样 pass rate 才有意义。
 
@@ -156,21 +171,69 @@ module.exports = {
 3. **每道题至少 1 个 case 在初始代码上必须是失败的**，而且它要对应 task.md 里明确要求的新增能力。
    否则 agent 什么都不做也会"全过"，这种题毫无信息量。
 
+4. **⭐ 这道题有解 —— 且你写的正确答案能过全部断言。**
+   第 2、3 条查不出"断言自相矛盾"的题：一条既要求 A 又要求 not A 的 case，
+   照样能满足"baseline 挂 1 个 + 过 2 个"，于是一道根本无解的废题就混进来了。
+   废题会以**满分率下降**的形式出现，而你看到数字掉了第一个反应是"模型变差了"，
+   去调提示词换模型 —— 全在错误的方向上使劲。
+
+   所以每道题配一份 `eval/oracles/<题目名>.solution.js`：人写的标准答案。
+   `npm run eval:solvable` 执行它，要求全部 case 一个不挂。
+
+### 断言里最容易犯的一个错
+
+**别把 agent 的"正常功能"当成"越权"。**
+
+真实教训：27 号题最初断言「`.notes/` 一个字节都不能碰」，
+结果 agent 调了一次 `record_note` 往 `.notes/` 写错题本 —— 那是**产品的正常功能** ——
+于是被判成 `regressed`。agent 做对了被判成弄坏了东西。
+
+`eval/shared.js` 把这件事定成了共享真相：`.notes/` 和 `.mini-coder/` 是插件自己的簿记目录，
+**默认从"用户的项目文件"里排除**（这必须和 `src/agent/tools/fileScan.ts` 的 `IGNORED_DIRS` 保持一致，
+否则工具层和评测层对"什么算项目代码"的世界观就对不上了）。
+
+用 `listFiles(dir)` 时默认就排除了簿记目录，要包含才显式传 `{ includeBookkeeping: true }`。
+
 ### 验证 baseline 设计对不对
 
 ```bash
-# 复制 initial 到临时目录跑 check，应该看到"有的过有的挂"
-node -e "
-const fs=require('fs'),path=require('path');
-const t='eval/tasks/01-simple-username-validate';
-const tmp=fs.mkdtempSync(path.join(require('os').tmpdir(),'v-'));
-fs.cpSync(t+'/initial',tmp,{recursive:true});
-const c=require(path.resolve(t+'/check.js'));
-c.cases.forEach(async x=>{try{await x.fn({dir:tmp,finalAnswer:'',transcript:[]});console.log('✅',x.name)}catch(e){console.log('❌',x.name)}});
-"
+npm run eval:verify      # 三条铁律（自动判定 / ≥2 通过 / ≥1 挂）
+npm run eval:solvable    # 第四条铁律（跑标准答案，全部要过）
 ```
 
 **全绿 = 题目设计有问题**（没有"要达成"的目标）。**全红 = 也有问题**（没有回归守卫）。
+
+---
+
+## 怎么读这份报告
+
+### 1. 先看 pass rate，**更要先看回归数**
+
+`⚠️ 造成回归` 比 `目标未达成` 更值得警惕。
+
+AI 编程助手最典型的失败不是"没改对"，而是**改对了目标、把别处改坏了**，
+而这个 bug agent 自己发现不了 —— 它跑一次测试看到绿色就收工了。
+只统计"最终有没有过"的话，这类失败会被完全掩盖。
+
+### 2. 拿到回归之后，**先确认是 agent 的问题还是断言的问题**
+
+真实教训：第二轮跑出 2 处回归，逐条核对发现全是**我断言写错了** ——
+agent 调 `record_note` 往 `.notes/` 写错题本是产品正常功能，却被我的断言判成越权。
+
+顺序不能反：
+1. 打开 `results.json`，看 `results[].regressions` 到底是哪些 case；
+2. 逐个读 case 的 `error` 字段，看它到底在断言什么；
+3. 判断是 agent 真做错了，还是这条断言本身不合理。
+
+跳过第 2、3 步直接去调 prompt，就是把力气花在错误的地方。
+
+### 3. 成本看 `每通过一题`，不是看总成本
+
+pass rate 稳定之后，唯一还有工程意义的信号是成本：
+两个都做对的方案，一个花 0.08 元一个花 0.30 元，这是实打实的差别。
+
+**贵的题不一定是难题**，更常见的原因是 agent 在原地打转 —— 每轮都把全量上下文重发一遍，
+轮数一多 token 就线性涨。所以「最贵 3 题」那张表里要盯**轮数**。
 
 ---
 

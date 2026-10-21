@@ -106,7 +106,7 @@ async function main() {
     model: env.model || defaults.model,
     maxIterations: 20,
     timeoutMs: 180_000,
-    approvalMode: 'auto', // 评测里不让弹窗打断
+    nonInteractive: true, // 评测里不让弹窗打断
   };
 
   if (!args.dry && !config.apiKey) {
@@ -197,7 +197,7 @@ async function runDryTask(task: TaskMeta, config: EvalConfig): Promise<TaskResul
   const orig = RealProvider.prototype.stream;
   RealProvider.prototype.stream = fake.stream;
   try {
-    return await runTask(task, { ...config, approvalMode: 'auto' });
+    return await runTask(task, { ...config, nonInteractive: true });
   } finally {
     RealProvider.prototype.stream = orig;
   }

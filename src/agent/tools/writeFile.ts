@@ -10,7 +10,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, toWorkspaceRelative } from './paths';
-import { requireWriteApproval } from './approval';
+import { approveToolCall } from './approval';
 import { writeMeta } from './meta';
 import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
 
@@ -48,16 +48,23 @@ export class WriteFileTool implements Tool {
     const before = exists ? await fs.readFile(filePath, 'utf-8').catch(() => null) : null;
     const cpId = snapshotOperation(this.name, [{ absPath: filePath, before }]);
 
-    if (exists) {
-      const approved = await requireWriteApproval(
-        this.name,
-        `将【覆盖】已存在的文件 ${toWorkspaceRelative(filePath)}\n` +
-          `原内容会被完全替换，只保留你传入的 content。`,
-      );
-      if (!approved) {
-        if (cpId) discardCheckpoint(cpId);
-        return { content: '用户拒绝了覆盖操作。请改用 apply_patch 做局部修改。', isError: true };
-      }
+    // ⭐ 权限决策：只读档会直接拒（新建文件也算"写"，一样要拦）
+    const decision = await approveToolCall({
+      toolName: this.name,
+      meta: this.meta,
+      summary: exists
+        ? `将【覆盖】已存在的文件 ${toWorkspaceRelative(filePath)}\n` +
+            `原内容会被完全替换，只保留你传入的 content。`
+        : `将新建文件 ${toWorkspaceRelative(filePath)}`,
+      // 新建文件比覆盖轻得多：askWrites 档免打扰，只读档照样拦
+      lowRisk: !exists,
+    });
+    if (!decision.approved) {
+      if (cpId) discardCheckpoint(cpId);
+      return {
+        content: decision.reason || '用户拒绝了这次写入。请改用 apply_patch 做局部修改。',
+        isError: true,
+      };
     }
 
     try {

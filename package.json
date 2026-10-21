@@ -40,6 +40,10 @@
         "title": "Mini-Coder: 设置 API Key"
       },
       {
+        "command": "mini-coder.setApprovalMode",
+        "title": "Mini-Coder: 权限档位（只读 / 写入需确认 / 全部需确认）"
+      },
+      {
         "command": "mini-coder.openChat",
         "title": "Mini-Coder: 打开聊天面板"
       },
@@ -123,6 +127,21 @@
           ],
           "default": "related",
           "markdownDescription": "**自动跑测试**的触发范围。保存文件后自动运行相关测试，失败时提示 AI 修复。"
+        },
+        "mini-coder.approvalMode": {
+          "type": "string",
+          "enum": [
+            "readOnly",
+            "askWrites",
+            "askAll"
+          ],
+          "enumDescriptions": [
+            "只读：agent 只能读文件和搜索，改文件、跑命令一律拒绝。适合先让它当「能读代码的搜索引擎」用。",
+            "写入需确认（推荐）：改文件要确认；跑命令只在命中高危特征时确认。改文件有 checkpoint 兜底，确认一次就够。",
+            "全部需确认：改文件要确认，每一条 shell 命令都逐条确认。最严格，适合只想让它跑构建/跑测试。"
+          ],
+          "default": "askWrites",
+          "markdownDescription": "**权限档位**。控制 agent 能在多大范围内动你的代码。\n\n三档共同的规则：**只读操作（读文件 / 搜索 / 列目录）在任何档位都不弹窗** —— 每读一个文件弹一次窗，这个工具会立刻变得没法用。\n\n也可以点状态栏上的权限项快速切换。"
         }
       }
     }

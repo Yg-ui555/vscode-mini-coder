@@ -11,7 +11,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { setWorkspaceRoot } from '../../agent/tools/paths';
-import { setApprovalMode } from '../../agent/tools/approval';
+import { setNonInteractive } from '../../agent/tools/approval';
 import { ApplyPatchTool } from '../../agent/tools/applyPatch';
 import { WriteFileTool } from '../../agent/tools/writeFile';
 import { RestoreFileTool } from '../../agent/tools/restoreFile';
@@ -32,7 +32,7 @@ describe('文件 Checkpoint', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mini-coder-cp-'));
     setWorkspaceRoot(tmpDir);
-    setApprovalMode('auto');
+    setNonInteractive(true);
     setCheckpointSession(`test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     clearCheckpoints();
   });

@@ -15,7 +15,7 @@ import * as os from 'os';
 
 import { setEvalWorkspace } from '../eval/shim';
 import { setWorkspaceRoot } from '../agent/tools/paths';
-import { setApprovalMode } from '../agent/tools/approval';
+import { setNonInteractive } from '../agent/tools/approval';
 import { loadAllTasks, loadCheck, copyDir, listFiles } from '../eval/types';
 import { clearSandboxCache } from '../eval/runner';
 import { toMarkdown, summarize } from '../eval/report';
@@ -26,7 +26,7 @@ beforeEach(async () => {
   tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'evaltest-'));
   setWorkspaceRoot(tmp);
   setEvalWorkspace(tmp);
-  setApprovalMode('auto');
+  setNonInteractive(true);
 });
 
 afterEach(async () => {

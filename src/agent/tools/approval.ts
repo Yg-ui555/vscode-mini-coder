@@ -1,31 +1,120 @@
 /**
- * 写操作确认 —— 用户对"AI 要改我代码"的知情权
+ * 权限分级 —— 用户对"AI 要动我的代码"的知情权与控制权
  *
- * 为什么需要：
- * 现在的流程是 LLM 说改就改，用户完全不知情。
- * LLM 判断错误很常见（把测试文件当垃圾文件、把配置写错），
- * 而"静默覆盖用户文件"是 AI 编程助手最被诟病的问题。
+ * ─────────────────────────────────────────────────────────────
+ * ⭐ 三档权限（2026-10-21）
  *
- * 对标：
- *   goose: 5 种权限决策（AlwaysAllow / AllowOnce / Cancel / DenyOnce / AlwaysDeny），
- *         按 (工具名, 参数哈希) 记忆授权
- *   nanobot: 反复越界会升级提示
- *   我们做最小可用版：写操作前问一次，支持"本次会话都允许"
+ *   readOnly    只读。agent 只能读文件、搜索、列目录，一根手指都动不了。
+ *               适合：先用它当"能读代码的搜索引擎"用，不信任它的判断时。
  *
- * 类比：以前 agent 是拿着钥匙直接进屋，现在进屋前会敲一下门。
+ *   askWrites   （默认）只读操作自动放行；改文件要确认；
+ *               执行 shell 命令只有在【命中高危特征】时才确认。
+ *               适合：日常写代码。改文件本来就有 checkpoint 兜底，
+ *               所以确认一次就够；命令只在真的会出事时才打断你。
  *
- * 注意：读操作（read_file）和 run_shell 不走这里 ——
- *      read_file 不产生副作用；run_shell 的风险用"危险命令检测"处理，
- *      不在这里混在一起，避免每次跑 ls 都要点确认。
+ *   askAll      最严。只读操作自动放行；改文件要确认；
+ *               每一条 shell 命令都逐条确认。
+ *               适合：让 agent 跑构建/跑测试，你不想它顺手执行任何其他东西。
+ *
+ * 三档的共同点：**只读工具在任何档位都不问**。
+ *   每读一个文件弹一次窗，这个工具会立刻变得没法用——
+ *   用户的反应不是"更安全了"，而是"烦死了，全关了"，最后安全形同虚设。
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ⚠️ 为什么不学 goose 的 LLM-as-judge 权限判定
+ *   （goose/crates/goose/src/permission/permission_judge.rs）
+ *
+ *   它在每次工具调用前额外调一次 LLM 判断"这操作是不是只读"。
+ *   三个问题：
+ *     慢——每个工具调用多一次完整 LLM 往返，工具密集的任务延迟翻倍；
+ *     烧钱——同样的往返在评测里是实打实的 token 成本；
+ *     判不准——它也只是猜，而猜错的方向恰恰是最危险的方向。
+ *   goose 团队自己都主要靠静态标注兜底。所以这里用 ToolMeta.kind 静态判定。
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 类比：三档就是三种「钥匙的发放范围」
+ *   readOnly  = 只给了门厅的钥匙，看得见客厅，进不去
+ *   askWrites = 给了钥匙，但开锁前会敲一下门
+ *   askAll    = 给了钥匙，每开一次门都敲一下
  */
+
+import * as vscode from 'vscode';
+import { ToolMeta } from './meta';
 
 interface VscodeLike {
   window: {
     showWarningMessage: (
       message: string,
-      ...items: string[]
+      ...items: any[]
     ) => Thenable<string | undefined>;
   };
+}
+
+/** 权限档位 */
+export type ApprovalTier = 'readOnly' | 'askWrites' | 'askAll';
+
+export const ALL_TIERS: ApprovalTier[] = ['readOnly', 'askWrites', 'askAll'];
+
+export interface TierInfo {
+  /** 中文名，UI 里显示 */
+  label: string;
+  /** 一句话说明这一档到底拦什么 */
+  summary: string;
+  /** 状态栏/提示里用的一句话 */
+  detail: string;
+}
+
+export const TIER_INFO: Record<ApprovalTier, TierInfo> = {
+  readOnly: {
+    label: '只读',
+    summary: 'agent 只能读文件和搜索，改文件、跑命令一律拒绝。',
+    detail: '只读 · 不能改任何文件',
+  },
+  askWrites: {
+    label: '写入需确认',
+    summary: '改文件要确认；跑命令只在命中高危特征时确认。',
+    detail: '写入需确认 · 高危命令才问',
+  },
+  askAll: {
+    label: '全部需确认',
+    summary: '改文件要确认，每一条 shell 命令都逐条确认。',
+    detail: '全部需确认 · 每条命令都问',
+  },
+};
+
+export function isApprovalTier(v: unknown): v is ApprovalTier {
+  return typeof v === 'string' && (ALL_TIERS as string[]).includes(v);
+}
+
+/** 当前档位 */
+let tier: ApprovalTier = 'askWrites';
+
+export function setApprovalTier(t: ApprovalTier): void {
+  tier = t;
+}
+
+export function getApprovalTier(): ApprovalTier {
+  return tier;
+}
+
+/**
+ * 非交互模式（单测 / 评测沙箱）
+ *
+ * ⚠️ 之前这里叫 setApprovalMode('ask' | 'auto')，和上面的三档 tier
+ *   名字太像了，很容易在维护时搞混——一个是非交互开关，一个是权限档位。
+ *   所以改名为 setNonInteractive(boolean)，语义一眼可见。
+ *
+ * 为什么要这个逃生舱：单测里 vscode 的 showWarningMessage 一律返回 undefined，
+ * 不放行的话所有写工具测试都会挂；评测沙箱里更是不能弹窗打断。
+ */
+let nonInteractive = false;
+
+export function setNonInteractive(on: boolean): void {
+  nonInteractive = on;
+}
+
+export function isNonInteractive(): boolean {
+  return nonInteractive;
 }
 
 /** 本次会话已授权的工具（key = 工具名） */
@@ -34,25 +123,28 @@ const sessionApprovals = new Set<string>();
 /** 首次运行还没问过的工具（只问一次，之后记到 sessionApprovals） */
 const askedTools = new Set<string>();
 
+/**
+ * 拿 vscode 的弹窗能力
+ *
+ * ⚠️ 这里原来是运行时 `require('vscode')` + try/catch 兜底，理由是"单测里没有 vscode 就放行"。
+ *   但那是个假想的安全网：
+ *     · vitest 下 require('vscode') 走不通（transform 后不是真 CommonJS），直接返回 undefined
+ *       → 所有弹窗分支被静默跳过 → 权限逻辑整块永远没被执行过
+ *     · 也就是说"权限到底拦没拦住"这件事，在测试里从来没被真正验证过
+ *
+ *   现在改成静态 import（和 doctor.ts / config.ts 一致）：
+ *     · 真实 VS Code：正常
+ *     · vitest：vitest.config.mts 把 vscode 别名指向 stub，能拿到假弹窗
+ *     · 评测 CLI：src/eval/shim.ts 劫持 Module._resolveFilename，静态 import 一样被替换
+ *
+ *   拿不到就当"非交互环境"放行，这一条仍然保留。
+ */
 function safeVscode(): VscodeLike | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('vscode');
+    return vscode as unknown as VscodeLike;
   } catch {
-    return undefined; // 测试环境 / 非 VS Code 宿主
+    return undefined;
   }
-}
-
-/**
- * 审批模式
- *  - 'ask'：正常模式，弹窗问用户（VS Code 里的默认行为）
- *  - 'auto'：自动放行（单测用——否则 stub 的 showWarningMessage
- *             一律返回 undefined，所有写操作都会被拒，测试全挂）
- */
-let approvalMode: 'ask' | 'auto' = 'ask';
-
-export function setApprovalMode(mode: 'ask' | 'auto'): void {
-  approvalMode = mode;
 }
 
 /** 新会话开始时调用，清空授权记录 */
@@ -66,26 +158,99 @@ export function isApproved(toolName: string): boolean {
   return sessionApprovals.has(toolName);
 }
 
+export interface ApprovalDecision {
+  approved: boolean;
+  /** 拒绝原因 —— 会原样回给 LLM，让它知道是被权限挡了而不是工具坏了 */
+  reason?: string;
+  /** 这次是否真的弹了窗 */
+  prompted: boolean;
+}
+
+const OK = (): ApprovalDecision => ({ approved: true, prompted: false });
+
+/** LLM 能看懂的拒绝话术：说清是哪一档挡的、还有别的办法吗 */
+function denyBecause(t: ApprovalTier, toolName: string): ApprovalDecision {
+  return {
+    approved: false,
+    prompted: false,
+    reason:
+      `工具 ${toolName} 被权限设置拒绝：当前是【${TIER_INFO[t].label}】档，${TIER_INFO[t].summary}\n` +
+      `这不是工具故障，是用户设的限制。请换一种做法（比如只读方式先给出方案让用户自己改），` +
+      `不要反复重试同一个调用，也不要试图用别的工具绕过。`,
+  };
+}
+
 /**
- * 写操作执行前请求授权
+ * ⭐ 权限决策的唯一入口
  *
- * @param toolName 工具名（用于记忆授权）
- * @param summary  给用户看的改动摘要（一句话说清要改什么）
- * @returns true = 允许，false = 拒绝（拒绝时工具应返回错误让 LLM 知道）
+ * 之前每个工具自己判断要不要弹窗，逻辑散在 4 个文件里，
+ * 加档位的时候必然漏。这里收拢成一个函数，新增工具只要给对 ToolMeta 就自动受管。
  */
-export async function requireWriteApproval(
-  toolName: string,
-  summary: string,
-): Promise<boolean> {
-  if (sessionApprovals.has(toolName)) return true;
-  if (approvalMode === 'auto') return true;
+export async function approveToolCall(req: {
+  toolName: string;
+  meta: ToolMeta;
+  /** 给用户看的摘要（一句话说清要干什么） */
+  summary: string;
+  /** exec 类工具传原始命令，用于高危特征检测 */
+  command?: string;
+  /**
+   * 这一次调用本身风险偏低吗？（比如 write_file 新建文件而不是覆盖）
+   *
+   * 语义很明确，别扩大用：
+   *   askWrites 档 → 免打扰，直接放行
+   *   readOnly 档 → 照拦（新建文件同样是在动工作区）
+   *   askAll 档   → 照问（既然选了最严，就别在这儿开后门）
+   *
+   * 为什么需要它：write_file 新建文件和覆盖文件的风险差一个量级，
+   * 但只读档的语义是"一根手指都不许动"，两者不能用同一个布尔判断。
+   */
+  lowRisk?: boolean;
+}): Promise<ApprovalDecision> {
+  const { toolName, meta, summary, command, lowRisk } = req;
+
+  // 逃生舱优先：非交互环境一律放行
+  if (nonInteractive) return OK();
+
+  // 只读在任何档位都放行 —— 否则这个工具会因为太烦而被直接关掉
+  if (meta.readOnly || meta.kind === 'read') return OK();
+
+  const current = tier;
+
+  // 只读档：非只读工具一律拒绝
+  if (current === 'readOnly') return denyBecause(current, toolName);
+
+  // 低风险调用在 askWrites 档免打扰（只读档已经在上面被拦掉了）
+  if (lowRisk && current === 'askWrites') return OK();
 
   const vscode = safeVscode();
-  // 测试环境没有 vscode → 放行，避免测试全部卡住
-  if (!vscode) return true;
+  // 没有 vscode（单测 / 评测）→ 放行，避免测试全卡住
+  if (!vscode) return OK();
+
+  if (meta.kind === 'exec') {
+    const danger = command ? detectDangerousCommand(command) : undefined;
+
+    // askWrites 档：只有命中高危特征才打断
+    if (current === 'askWrites' && !danger) return OK();
+
+    const message = danger
+      ? `⚠ 这条命令包含高危操作：${danger}\n\n${command}\n\n${summary}`
+      : `Mini-Coder 准备执行命令\n\n${summary || command || ''}`;
+
+    // ⭐ askAll 档下【不提供】"本次会话都允许"：
+    //   执行命令的副作用在 agent 控制之外（可能已经推了远端、删了系统文件），
+    //   一句"本次会话都允许"就把这一整类风险全开了，这个口子不该开。
+    const action = await vscode.window.showWarningMessage(message, '允许一次', '拒绝', {
+      modal: true,
+    } as any);
+    return action === '允许一次'
+      ? { approved: true, prompted: true }
+      : { ...denyBecause(current, toolName), prompted: true };
+  }
+
+  // write 类：走原来的按工具名记忆授权
+  if (sessionApprovals.has(toolName)) return { approved: true, prompted: true };
 
   const isFirstAsk = !askedTools.has(toolName);
-
   const action = await vscode.window.showWarningMessage(
     `Mini-Coder 准备修改你的文件\n\n${summary}`,
     ...(isFirstAsk ? ['允许一次', '本次会话都允许', '拒绝'] : ['允许一次', '拒绝']),
@@ -93,14 +258,14 @@ export async function requireWriteApproval(
 
   if (action === '本次会话都允许') {
     sessionApprovals.add(toolName);
-    return true;
+    return { approved: true, prompted: true };
+  }
+  if (action === '允许一次') {
+    askedTools.add(toolName);
+    return { approved: true, prompted: true };
   }
 
-  if (action === '允许一次') return true;
-
-  // 取消 / 拒绝
-  askedTools.add(toolName);
-  return false;
+  return { ...denyBecause(current, toolName), prompted: true };
 }
 
 /**
@@ -130,6 +295,7 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
 /** 返回命中的危险原因，没命中返回 undefined */
 export function detectDangerousCommand(command: string): string | undefined {
+  if (!command) return undefined;
   for (const { pattern, reason } of DANGEROUS_PATTERNS) {
     if (pattern.test(command)) return reason;
   }
@@ -137,25 +303,18 @@ export function detectDangerousCommand(command: string): string | undefined {
 }
 
 /**
- * shell 命令执行前的风险提示
- * @returns true = 放行
+ * 列出某个档位下会被拦住的工具（/doctor 和设置界面用）
+ *
+ * 纯函数，不碰 vscode，方便单测。
  */
-export async function confirmShellCommand(
-  command: string,
-): Promise<{ approved: boolean; reason?: string }> {
-  const reason = detectDangerousCommand(command);
-  if (!reason) return { approved: true };
-  if (approvalMode === 'auto') return { approved: true };
-
-  const vscode = safeVscode();
-  if (!vscode) return { approved: true };
-
-  const action = await vscode.window.showWarningMessage(
-    `⚠ 这条命令包含高危操作：${reason}\n\n${command}`,
-    '仍然执行',
-    '取消',
-    { modal: true } as any,
-  );
-
-  return { approved: action === '仍然执行', reason };
+export function blockedToolsIn(t: ApprovalTier, metas: Record<string, ToolMeta>): string[] {
+  return Object.entries(metas)
+    .filter(([, m]) => !m.readOnly && m.kind !== 'read')
+    .filter(([, m]) => {
+      if (t === 'readOnly') return true;
+      if (t === 'askWrites') return m.kind === 'write';
+      return true; // askAll：非只读全部要确认
+    })
+    .map(([name]) => name)
+    .sort();
 }
