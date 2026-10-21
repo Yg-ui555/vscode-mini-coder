@@ -1,0 +1,296 @@
+/**
+ * 单题执行器：沙箱隔离 → baseline → 跑 agent → 复检 → L4 回归比对
+ *
+ * 流程（这一步顺序不能乱）：
+ *   1. 把 initial/ 复制到独立沙箱（题与题之间零污染）
+ *   2. 跑一次 check.js 记为【baseline】
+ *      —— 这一步是为了 L4：知道"哪些 case 本来就是过的"
+ *   3. 让 agent 在沙箱里干活
+ *   4. 再跑一次 check.js 记为【after】
+ *   5. 三方比对：
+ *        baseline 过 + after 过   → 保持通过
+ *        baseline 挂 + after 过   → 修好了（这才是这题要的）
+ *        baseline 挂 + after 挂   → 没修好
+ *        baseline 过 + after 挂   → ⭐ 回归！agent 把好的改坏了
+ *
+ * L4 回归是这套评测里最有价值的部分：
+ *   AI 编程助手最典型的失败不是"没改对"，而是"改对了目标、把别处改坏了"，
+ *   而这个 bug agent 自己发现不了——它跑一次测试看到绿色就收工了。
+ *   只统计"最终有没有过"的话，这类失败会被完全掩盖。
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+import { OpenAIProvider } from '../agent/provider';
+import { AgentLoop } from '../agent/loop';
+import { ToolRegistry } from '../agent/tools/registry';
+import { ReadFileTool } from '../agent/tools/readFile';
+import { WriteFileTool } from '../agent/tools/writeFile';
+import { ApplyPatchTool } from '../agent/tools/applyPatch';
+import { RunShellTool } from '../agent/tools/runShell';
+import { ContextBuilder } from '../agent/context';
+import { setWorkspaceRoot } from '../agent/tools/paths';
+import { setApprovalMode } from '../agent/tools/approval';
+import { setEvalWorkspace } from './shim';
+
+import {
+  TaskMeta,
+  CheckModule,
+  CheckContext,
+  ToolTrace,
+  loadCheck,
+  copyDir,
+  listFiles,
+} from './types';
+
+export interface CaseResult {
+  name: string;
+  baseline: boolean;
+  after: boolean;
+  error?: string;
+}
+
+export type TaskVerdict =
+  | 'pass' // 目标达成
+  | 'fail' // 没达成
+  | 'regressed' // 达成目标但弄坏了原本好的（算失败，且更严重）
+  | 'error'; // 评测基础设施出错，跟 agent 无关
+
+export interface TaskResult {
+  id: string;
+  tier: string;
+  title: string;
+  verdict: TaskVerdict;
+  /** 本题要求修复/实现的 case：baseline 挂 → after 过 = 达成 */
+  fixedCases: string[];
+  /** 回归：baseline 过 → after 挂 */
+  regressions: string[];
+  /** 一直没过的（跟本题目标无关的坏 case，可忽略） */
+  stillFailing: string[];
+  cases: CaseResult[];
+  toolTrace: ToolTrace[];
+  changedFiles: string[];
+  finalAnswer: string;
+  durationMs: number;
+  error?: string;
+}
+
+export interface EvalConfig {
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  maxIterations: number;
+  /** 单题超时（毫秒） */
+  timeoutMs: number;
+  /** 评测里把写操作确认设成什么模式 */
+  approvalMode: 'auto' | 'ask';
+}
+
+/**
+ * 清理沙箱内的 require 缓存
+ *
+ * ⚠️ 为什么必须清：check.js 里用 require(path.join(dir, 'x.js')) 读代码，
+ *   Node 会缓存模块。第一次（baseline）读到初始代码，agent 改完文件后，
+ *   第二次（after）如果不清缓存，还是读到旧内容 —— 那样 after 永远等于 baseline，
+ *   整套评测直接失效。
+ *
+ * ⚠️ Windows 注意：require.cache 的 key 是 require 传进来的原始字符串，
+ *   大小写和分隔符可能跟 ctx.dir 不一致（比如 C:\Users vs c:\users），
+ *   所以要规范化 + 忽略大小写比较，否则会漏清。
+ */
+export function clearSandboxCache(dir: string): void {
+  const normalized = path.resolve(dir).replace(/[\\/]+$/, '').toLowerCase();
+  for (const key of Object.keys(require.cache)) {
+    const k = path.resolve(key).replace(/[\\/]+$/, '').toLowerCase();
+    if (k.startsWith(normalized)) delete require.cache[key];
+  }
+}
+
+/** 跑一遍 check，返回每个 case 的通过情况 */
+async function runCheck(
+  check: CheckModule,
+  ctx: CheckContext,
+): Promise<Array<{ name: string; ok: boolean; error?: string }>> {
+  const results: Array<{ name: string; ok: boolean; error?: string }> = [];
+  // 清掉沙箱内模块缓存，保证每次都读改后的代码
+  clearSandboxCache(ctx.dir);
+
+  for (const c of check.cases) {
+    try {
+      await c.fn(ctx);
+      results.push({ name: c.name, ok: true });
+    } catch (e: any) {
+      results.push({ name: c.name, ok: false, error: e?.message || String(e) });
+    }
+  }
+  return results;
+}
+
+/** 跑一道题 */
+export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskResult> {
+  const startedAt = Date.now();
+  const sandbox = path.join(os.tmpdir(), `minicoder-eval-${task.id}-${Date.now()}`);
+
+  const base: TaskResult = {
+    id: task.id,
+    tier: task.tier,
+    title: task.title,
+    verdict: 'error',
+    fixedCases: [],
+    regressions: [],
+    stillFailing: [],
+    cases: [],
+    toolTrace: [],
+    changedFiles: [],
+    finalAnswer: '',
+    durationMs: 0,
+  };
+
+  try {
+    // 1. 沙箱
+    if (fs.existsSync(sandbox)) fs.rmSync(sandbox, { recursive: true, force: true });
+    if (fs.existsSync(task.initialDir)) copyDir(task.initialDir, sandbox);
+    else fs.mkdirSync(sandbox, { recursive: true });
+
+    const filesBefore = listFiles(sandbox);
+
+    // 让工具层认为沙箱就是工作区（路径白名单才会放行题目目录）
+    setWorkspaceRoot(sandbox);
+    setEvalWorkspace(sandbox);
+    setApprovalMode(config.approvalMode);
+
+    const check = loadCheck(task);
+
+    const makeCtx = (finalAnswer: string, toolTrace: ToolTrace[]): CheckContext => ({
+      dir: sandbox,
+      finalAnswer,
+      transcript: toolTrace,
+      task,
+    });
+
+    // 2. baseline
+    const baseline = await runCheck(check, makeCtx('', []));
+
+    // 3. 跑 agent
+    const toolTrace: ToolTrace[] = [];
+    const provider = new OpenAIProvider(config.baseUrl, config.apiKey, config.model);
+
+    const registry = new ToolRegistry();
+    registry.register(new ReadFileTool());
+    registry.register(new WriteFileTool());
+    registry.register(new ApplyPatchTool());
+    registry.register(new RunShellTool());
+
+    const loop = new AgentLoop(provider, registry, config.maxIterations);
+
+    const messages: any[] = [
+      { role: 'system', content: new ContextBuilder(sandbox).buildSystemPrompt() },
+      { role: 'user', content: task.prompt },
+    ];
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), config.timeoutMs);
+
+    let finalAnswer = '';
+    try {
+      finalAnswer = await loop.run(messages, abort.signal, {
+        onText: () => {},
+        onToolCall: () => {},
+        onToolResult: (name, result) => {
+          toolTrace.push({
+            tool: name,
+            args: {},
+            isError: !!result.isError,
+            preview: result.content.slice(0, 200),
+          });
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
+    }
+
+    // 4. after
+    const after = await runCheck(check, makeCtx(finalAnswer, toolTrace));
+
+    // 5. 三方比对
+    const cases: CaseResult[] = [];
+    const regressions: string[] = [];
+    const fixed: string[] = [];
+    const stillFailing: string[] = [];
+
+    for (let i = 0; i < check.cases.length; i++) {
+      const name = check.cases[i].name;
+      const b = baseline[i]?.ok ?? false;
+      const a = after[i]?.ok ?? false;
+      cases.push({ name, baseline: b, after: a, error: after[i]?.error });
+
+      if (b && a) continue; // 一直通过
+      if (!b && a) {
+        fixed.push(name); // 修好了
+        continue;
+      }
+      if (b && !a) {
+        regressions.push(name); // ⭐ 回归
+        continue;
+      }
+      stillFailing.push(name); // 一直没好
+    }
+
+    // 改了哪些文件 —— 存一份 baseline 快照来做真实的增删改判定
+    const filesAfter = listFiles(sandbox);
+    const beforeSet = new Set(filesBefore);
+    const afterSet = new Set(filesAfter);
+    const changed: string[] = [];
+    for (const f of filesAfter) {
+      if (!beforeSet.has(f)) {
+        changed.push(`新 ${f}`);
+        continue;
+      }
+      // 同名文件：内容有变化就是"改"
+      try {
+        const now = fs.readFileSync(path.join(sandbox, f), 'utf-8');
+        const before = fs.readFileSync(path.join(task.initialDir, f), 'utf-8');
+        if (now !== before) changed.push(`改 ${f}`);
+      } catch {}
+    }
+    for (const f of filesBefore) {
+      if (!afterSet.has(f)) changed.push(`删 ${f}`);
+    }
+
+    // 判定
+    let verdict: TaskVerdict;
+    if (fixed.length === 0) verdict = 'fail';
+    else if (regressions.length > 0) verdict = 'regressed';
+    else verdict = 'pass';
+
+    return {
+      ...base,
+      verdict,
+      fixedCases: fixed,
+      regressions,
+      stillFailing,
+      cases,
+      toolTrace,
+      changedFiles: changed,
+      finalAnswer: finalAnswer.slice(0, 2000),
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (e: any) {
+    return {
+      ...base,
+      error: e?.stack || e?.message || String(e),
+      durationMs: Date.now() - startedAt,
+    };
+  } finally {
+    // 清理沙箱
+    try {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    } catch {}
+    setWorkspaceRoot(undefined);
+    setEvalWorkspace(undefined);
+  }
+}
