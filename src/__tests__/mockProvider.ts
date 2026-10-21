@@ -33,13 +33,21 @@ export class MockProvider {
   public callCount = 0;
   /** 每次调用收到的 messages（可被测试 inspect 验证 history 增长） */
   public receivedMessages: any[][] = [];
+  /** ⭐ 每次调用收到的 tools 数组（验证"收尾请求不带工具"等行为） */
+  public receivedTools: any[][] = [];
 
   constructor(responses: MockResponse[]) {
     this.responses = responses;
   }
 
-  async *stream(messages: any[], _tools: any[]): AsyncGenerator<StreamChunk> {
+  /** 便捷访问：最后一次调用收到的 tools */
+  get lastToolsArg(): any[] {
+    return this.receivedTools[this.receivedTools.length - 1] ?? [];
+  }
+
+  async *stream(messages: any[], tools: any[] = []): AsyncGenerator<StreamChunk> {
     this.receivedMessages.push(JSON.parse(JSON.stringify(messages)));
+    this.receivedTools.push(tools);
     const idx = Math.min(this.callCount, this.responses.length - 1);
     const r = this.responses[idx];
     this.callCount++;

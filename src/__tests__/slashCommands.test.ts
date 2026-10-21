@@ -53,9 +53,9 @@ describe('parseSlashCommand', () => {
 });
 
 describe('listSlashCommands', () => {
-  it('should return all 4 built-in commands', () => {
+  it('should return all 6 built-in commands', () => {
     const cmds = listSlashCommands();
-    expect(cmds.length).toBe(4);
+    expect(cmds.length).toBe(6);
   });
 
   it('should include expected command names', () => {
@@ -64,6 +64,8 @@ describe('listSlashCommands', () => {
     expect(names).toContain('commit');
     expect(names).toContain('notes');
     expect(names).toContain('solve');
+    expect(names).toContain('doctor');
+    expect(names).toContain('logs');
   });
 
   it('should include description for each command', () => {

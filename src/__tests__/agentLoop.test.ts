@@ -77,10 +77,12 @@ describe('AgentLoop', () => {
       onToolResult: () => {},
     });
 
-    // 中文 mojibake 兜底：只检查结构化特征（避免 Windows codepage 编码错位）
-    expect(typeof result).toBe('string');
-    expect(result as string).toMatch(/\[.*3.*\]/); // 形如 "[...3]"
-    expect(provider.callCount).toBe(3); // 严格 ≤ maxIterations
+    // 触顶后【多了一次收尾总结请求】：借鉴 nanobot 的 _try_finalize_after_max_iterations
+    // ——用户最需要的是"它到底干了啥"，不是一句"超限了"
+    // 所以 callCount = maxIterations(3) + 1(无工具收尾) = 4
+    // ⚠️ 收尾请求【不注册工具】：如果带了 tools，LLM 可能又想调工具，收尾就收不住
+    expect(provider.callCount).toBe(4);
+    expect(provider.lastToolsArg).toEqual([]); // 关键：最后一次不带工具
   });
 
   it('should pass assistant tool_calls message back to LLM in next round', async () => {
@@ -142,5 +144,57 @@ describe('AgentLoop', () => {
     // 应该至少触发一次 autocompact
     expect(compactCalls.length).toBeGreaterThanOrEqual(1);
     expect(compactCalls[0]).toMatch(/autocompact/);
+  });
+
+  // ============ 新增边界测试 ============
+
+  it('should keep going when tool throws (not crash main loop)', async () => {
+    // 工具抛错不应该让主循环崩
+    // 类比：店里一个服务员摔倒了，其他服务员继续干活
+    const errorTool = new MockTool('crash', [{ content: 'boom', isError: true }]);
+    const recoveryReg = new ToolRegistry();
+    recoveryReg.register(errorTool);
+
+    const provider = new MockProvider([
+      // 第 1 轮：调用工具（会失败）
+      { toolCalls: [{ name: 'crash', args: {} }] },
+      // 第 2 轮：工具失败后 LLM 看到结果，返回文本
+      { content: '工具失败了但我能继续' },
+    ]);
+    const loop = new AgentLoop(provider as any, recoveryReg, 10);
+
+    const messages: any[] = [{ role: 'user', content: '试试工具' }];
+    const result = await loop.run(messages, undefined, {
+      onText: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+    });
+
+    expect(result).toBe('工具失败了但我能继续');
+    expect(errorTool.invocations.length).toBe(1);
+    // 验证：失败的工具结果也被塞回 messages，下一轮 LLM 能看到
+    expect(provider.receivedMessages[1].some((m: any) => m.role === 'tool')).toBe(true);
+  });
+
+  it('should fallback to empty args when tool arguments is invalid JSON', async () => {
+    // LLM 返回的 tool arguments 可能是坏 JSON（边界 case）
+    // 类比：快递单地址写错了，你别报错，先按默认地址送
+    const provider = new MockProvider([
+      // 故意传坏 JSON
+      { toolCalls: [{ name: 'echo', args: '{not valid json' }] },
+      { content: 'ok' },
+    ]);
+    const loop = new AgentLoop(provider as any, registry, 10);
+
+    const messages: any[] = [{ role: 'user', content: 'go' }];
+    await loop.run(messages, undefined, {
+      onText: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+    });
+
+    // 验证：工具被调用时收到空 args（不是抛错）
+    expect(tool.invocations.length).toBe(1);
+    expect(tool.invocations[0].args).toEqual({});
   });
 });
