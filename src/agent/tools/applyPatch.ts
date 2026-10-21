@@ -23,6 +23,8 @@ import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, toWorkspaceRelative } from './paths';
 import { requireWriteApproval } from './approval';
+import { writeMeta } from './meta';
+import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
 
 interface Edit {
   path?: string;
@@ -37,6 +39,7 @@ function escapeRegex(s: string): string {
 
 export class ApplyPatchTool implements Tool {
   readonly name = 'apply_patch';
+  readonly meta = writeMeta();
   readonly description =
     '结构化文件编辑。支持多文件批量修改，每个 edit 指定 path + action + old_text + new_text。' +
     'action=replace 要求 old_text 唯一匹配（防歧义）。action=add 追加到末尾。' +
@@ -137,6 +140,17 @@ export class ApplyPatchTool implements Tool {
       return { content: `Dry-run OK:\n${summaries.join('\n')}` };
     }
 
+    // ⭐ 先存 checkpoint，再问用户要不要写
+    //   顺序很关键：快照必须在写盘之前落，而且必须在弹窗之前落 ——
+    //   用户点了"允许"之后如果发现改错了，/undo 才有东西可退。
+    //   backups 里记的正是"本次操作涉及的所有文件的原始内容"，
+    //   一次工具调用 = 一个 checkpoint，所以用户点一次 /undo 能全退回，
+    //   不用按文件退 5 次。
+    const cpId = snapshotOperation(
+      this.name,
+      [...backups.entries()].map(([absPath, before]) => ({ absPath, before })),
+    );
+
     // ⭐ 写操作确认：让用户知道 AI 要改他的文件（dry_run 不打扰）
     const approved = await requireWriteApproval(
       this.name,
@@ -145,6 +159,8 @@ export class ApplyPatchTool implements Tool {
         .join('\n')}`,
     );
     if (!approved) {
+      // 用户拒绝了 —— 刚存的快照没有意义，清掉避免污染 undo 历史
+      if (cpId) discardCheckpoint(cpId);
       return {
         content: '用户拒绝了这次修改请求。不要重复请求同一个改动，先向用户确认需求。',
         isError: true,
@@ -161,6 +177,9 @@ export class ApplyPatchTool implements Tool {
         content:
           `已应用 ${summaries.length} 个 edit（涉及 ${writes.size} 个文件）:\n` +
           `${summaries.join('\n')}\n\n` +
+          (cpId
+            ? `💡 本次改动已存档（${cpId}）。如果改错了，用户可以执行 /undo 退回，或你可以调用 restore_file。\n\n`
+            : '') +
           `⚠ 后续若要再改这些文件，请用 read_file 重新读取最新内容——` +
           `old_text 必须匹配文件里的真实文本。`,
       };
@@ -177,6 +196,8 @@ export class ApplyPatchTool implements Tool {
           // rollback 失败不致命
         }
       }
+      // 写盘已经自己回滚了，快照没意义，删掉
+      if (cpId) discardCheckpoint(cpId);
       return { content: `应用失败，已回滚: ${e.message}`, isError: true };
     }
   }

@@ -85,12 +85,17 @@
             "ollama"
           ],
           "default": "deepseek",
-          "description": "选择 LLM Provider"
+          "markdownDescription": "选择 LLM Provider。**注意**：本项优先级低于项目根目录的 `.env`，高于命令面板里保存的选择。"
         },
         "mini-coder.model": {
           "type": "string",
-          "default": "deepseek-chat",
-          "description": "模型 ID"
+          "default": "",
+          "markdownDescription": "模型 ID。留空则用该 Provider 的默认模型（如 `deepseek-chat`）。优先级：`.env` > 本项 > Provider 默认值。"
+        },
+        "mini-coder.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "覆盖 API 地址。留空则用 Provider 默认值。主要用于切换 MiniMax 国内站（`https://api.minimaxi.com/v1`）/ 国际站（`https://api.minimax.io/v1`）—— 两边账号不通用，key 也互不相认。"
         }
       }
     }

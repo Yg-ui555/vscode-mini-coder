@@ -26,10 +26,7 @@ import * as os from 'os';
 import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
 import { ToolRegistry } from '../agent/tools/registry';
-import { ReadFileTool } from '../agent/tools/readFile';
-import { WriteFileTool } from '../agent/tools/writeFile';
-import { ApplyPatchTool } from '../agent/tools/applyPatch';
-import { RunShellTool } from '../agent/tools/runShell';
+import { createDefaultRegistry } from '../agent/tools/factory';
 import { ContextBuilder } from '../agent/context';
 import { setWorkspaceRoot } from '../agent/tools/paths';
 import { setApprovalMode } from '../agent/tools/approval';
@@ -178,11 +175,10 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     const toolTrace: ToolTrace[] = [];
     const provider = new OpenAIProvider(config.baseUrl, config.apiKey, config.model);
 
-    const registry = new ToolRegistry();
-    registry.register(new ReadFileTool());
-    registry.register(new WriteFileTool());
-    registry.register(new ApplyPatchTool());
-    registry.register(new RunShellTool());
+    // ⭐ 评测沙箱必须和真实用户拿到【完全一样】的工具集
+    //   否则评测出来的 pass rate 是失真的：题目做不出来可能只是因为
+    //   沙箱里少了 grep，而不是模型不会。
+    const registry = createDefaultRegistry();
 
     const loop = new AgentLoop(provider, registry, config.maxIterations);
 

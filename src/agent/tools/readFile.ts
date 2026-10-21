@@ -11,11 +11,13 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace } from './paths';
+import { readOnlyMeta } from './meta';
 
 const MAX_OUTPUT_CHARS = 30000;
 
 export class ReadFileTool implements Tool {
   readonly name = 'read_file';
+  readonly meta = readOnlyMeta();
   readonly description =
     '读取文件内容。返回文本。文件过大（>30000 字符）会截断，' +
     '截断时会在末尾提示完整长度——此时请用 offset/limit 分段读取。' +

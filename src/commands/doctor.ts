@@ -40,16 +40,23 @@ export async function runDoctor(
   checks.push({
     name: 'API Key',
     ok: !!key,
-    detail: key ? `已设置（长度 ${key.length}）` : '未设置',
+    detail: key
+      ? `已设置（长度 ${key.length}${configManager.describeEffective().keyFromEnv ? '，来自 .env' : '，来自 SecretStorage'}）`
+      : '未设置',
   });
 
-  // 2. Provider
-  const provider = await configManager.getProvider();
-  const pConfig = PROVIDER_CONFIGS[provider];
+  // 2. 实际生效的配置（.env > 设置界面 > SecretStorage 助手）
+  //    ⭐ 修复记录：之前这里只显示 globalState 里向导选的值，
+  //      用户在设置界面改 mini-coder.provider 后 /doctor 显示的还是旧值，
+  //      完全无法验证配置是否生效。现在显示真正会用的那一组。
+  const eff = configManager.describeEffective();
+  const pConfig = PROVIDER_CONFIGS[eff.provider];
   checks.push({
-    name: 'Provider',
+    name: '生效配置',
     ok: !!pConfig,
-    detail: pConfig ? `${provider} → ${pConfig.defaultModel}` : `${provider}（未知）`,
+    detail: pConfig
+      ? `${eff.provider} → 模型 ${eff.model}\n           地址 ${eff.baseUrl}`
+      : `${eff.provider}（未知 provider，检查设置项）`,
   });
 
   // 3. Webview 构建产物
@@ -116,28 +123,23 @@ export async function runDoctor(
 async function checkToolRegistration(): Promise<{ name: string; ok: boolean; detail: string }> {
   try {
     // 动态 require 避免顶层 import 造成循环依赖
-    const { ToolRegistry } = require('../agent/tools/registry');
-    const { ReadFileTool } = require('../agent/tools/readFile');
-    const { WriteFileTool } = require('../agent/tools/writeFile');
-    const { ApplyPatchTool } = require('../agent/tools/applyPatch');
-    const { RunShellTool } = require('../agent/tools/runShell');
+    const { createDefaultRegistry, ALL_TOOL_NAMES } = require('../agent/tools/factory');
 
-    const registry = new ToolRegistry();
-    registry.register(new ReadFileTool());
-    registry.register(new WriteFileTool());
-    registry.register(new ApplyPatchTool());
-    registry.register(new RunShellTool());
-
+    const registry = createDefaultRegistry();
     const names = registry.names;
-    const expected = ['read_file', 'write_file', 'apply_patch', 'run_shell'];
-    const missing = expected.filter((n) => !names.includes(n));
+    const missing = ALL_TOOL_NAMES.filter((n: string) => !names.includes(n));
+
+    const readOnly = names.filter((n: string) =>
+      ['read_file', 'grep', 'glob', 'list_dir'].includes(n),
+    ).length;
 
     return {
       name: '工具注册',
       ok: missing.length === 0,
       detail:
         missing.length === 0
-          ? `${names.length} 个工具就绪：${names.join(', ')}`
+          ? `${names.length} 个工具就绪（${readOnly} 只读 + ${names.length - readOnly} 写入/执行）：\n` +
+            `           ${names.join(', ')}`
           : `缺少：${missing.join(', ')}`,
     };
   } catch (e: any) {

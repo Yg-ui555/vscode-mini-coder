@@ -20,6 +20,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
+import { getDefaultCwd } from '../agent/tools/paths';
 
 const execAsync = promisify(exec);
 
@@ -99,9 +100,11 @@ export function registerZhCommit(context: vscode.ExtensionContext, configManager
  */
 async function getGitDiff(): Promise<string> {
   let diff = '';
+  // ⚠️ cwd 必须是工作区根：扩展宿主进程的 process.cwd() 不保证等于工作区
   try {
     const { stdout } = await execAsync('git diff HEAD', {
       maxBuffer: 5 * 1024 * 1024, // 5MB
+      cwd: getDefaultCwd(),
     });
     diff = stdout.trim();
   } catch {
@@ -114,10 +117,11 @@ async function getGitDiff(): Promise<string> {
 
 /** 收集未跟踪文件的内容，拼成 LLM 能读的文本 */
 async function getUntrackedFiles(): Promise<string> {
+  const repoRoot = getDefaultCwd();
   try {
     const { stdout } = await execAsync(
       'git ls-files --others --exclude-standard',
-      { maxBuffer: 2 * 1024 * 1024 },
+      { maxBuffer: 2 * 1024 * 1024, cwd: repoRoot },
     );
     const files = stdout.split('\n').map((s) => s.trim()).filter(Boolean);
     if (files.length === 0) return '';
@@ -129,7 +133,8 @@ async function getUntrackedFiles(): Promise<string> {
 
     for (const rel of files.slice(0, LIMIT_FILES)) {
       try {
-        const abs = path.resolve(process.cwd(), rel);
+        // ⚠️ 用 repoRoot 解析相对路径，不是 process.cwd()
+        const abs = path.resolve(repoRoot, rel);
         const content = await fs.readFile(abs, 'utf-8');
         const lines = content.split('\n');
         const shown = lines.slice(0, LIMIT_LINES);

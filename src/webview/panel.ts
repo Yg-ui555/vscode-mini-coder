@@ -15,10 +15,7 @@ import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
 import { ToolRegistry } from '../agent/tools/registry';
-import { ReadFileTool } from '../agent/tools/readFile';
-import { WriteFileTool } from '../agent/tools/writeFile';
-import { ApplyPatchTool } from '../agent/tools/applyPatch';
-import { RunShellTool } from '../agent/tools/runShell';
+import { createDefaultRegistry } from '../agent/tools/factory';
 import { ContextBuilder } from '../agent/context';
 import { runSlashCommand, listSlashCommands } from '../slashCommands/registry';
 import { toUserView } from '../errors';
@@ -186,11 +183,9 @@ export class ChatPanel {
     );
     info(`Provider：${configured.config.baseUrl} / ${configured.config.defaultModel}`);
 
-    const registry = new ToolRegistry();
-    registry.register(new ReadFileTool());
-    registry.register(new WriteFileTool());
-    registry.register(new ApplyPatchTool());
-    registry.register(new RunShellTool());
+    // 工具集由工厂统一提供（与评测沙箱、AI 修测试共用同一份定义）
+    const registry = createDefaultRegistry();
+    info(`已加载 ${registry.names.length} 个工具：${registry.names.join(', ')}`);
 
     const loop = new AgentLoop(provider, registry, 20);
 

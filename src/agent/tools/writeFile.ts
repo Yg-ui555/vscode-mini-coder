@@ -11,9 +11,12 @@ import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, toWorkspaceRelative } from './paths';
 import { requireWriteApproval } from './approval';
+import { writeMeta } from './meta';
+import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
 
 export class WriteFileTool implements Tool {
   readonly name = 'write_file';
+  readonly meta = writeMeta();
   readonly description =
     '写入文件内容（覆盖整个文件）。仅用于创建新文件；修改已有文件请优先用 apply_patch。' +
     '路径必须在当前工作区内。';
@@ -36,6 +39,15 @@ export class WriteFileTool implements Tool {
 
     // 覆盖已有文件是高风险操作（整个内容被替换），单独确认
     const exists = await fs.stat(filePath).then((s) => s.isFile()).catch(() => false);
+
+    // ⭐ 先读原内容存快照。
+    //   - 文件已存在 → 存原内容，/undo 时写回去
+    //   - 文件是新建的 → 存 null，/undo 时把这个文件删掉
+    //   两种情况都必须存：新建的文件同样需要"撤销"，
+    //   否则 agent 建了一堆垃圾文件用户没法一键清掉。
+    const before = exists ? await fs.readFile(filePath, 'utf-8').catch(() => null) : null;
+    const cpId = snapshotOperation(this.name, [{ absPath: filePath, before }]);
+
     if (exists) {
       const approved = await requireWriteApproval(
         this.name,
@@ -43,6 +55,7 @@ export class WriteFileTool implements Tool {
           `原内容会被完全替换，只保留你传入的 content。`,
       );
       if (!approved) {
+        if (cpId) discardCheckpoint(cpId);
         return { content: '用户拒绝了覆盖操作。请改用 apply_patch 做局部修改。', isError: true };
       }
     }
@@ -54,9 +67,13 @@ export class WriteFileTool implements Tool {
       return {
         content:
           `已写入 ${args.content.length} 字符到 ${toWorkspaceRelative(filePath)}` +
-          (exists ? '（覆盖了原有内容）' : '（新建文件）'),
+          (exists ? '（覆盖了原有内容）' : '（新建文件）') +
+          (cpId
+            ? `\n💡 本次改动已存档（${cpId}）。改错了可以用 /undo 退回，或调用 restore_file。`
+            : ''),
       };
     } catch (e: any) {
+      if (cpId) discardCheckpoint(cpId);
       return { content: `写入失败: ${e.message}`, isError: true };
     }
   }

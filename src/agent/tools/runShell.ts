@@ -17,8 +17,9 @@
 import { exec, spawn } from 'child_process';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
-import { resolveInWorkspace } from './paths';
+import { resolveInWorkspace, getDefaultCwd } from './paths';
 import { confirmShellCommand } from './approval';
+import { execMeta } from './meta';
 
 const MAX_OUTPUT_CHARS = 30000;
 const DEFAULT_TIMEOUT = 30_000; // 30 秒
@@ -34,6 +35,9 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; note: string }> = [
 
 export class RunShellTool implements Tool {
   readonly name = 'run_shell';
+  // run_shell 不固定 needsCheckpoint —— 它能不能改文件取决于命令本身，
+  // 靠 DANGEROUS_PATTERNS 在执行前单独判断更准。
+  readonly meta = execMeta(false);
   readonly description =
     '执行 shell 命令。默认超时 30 秒。支持 working_dir 指定目录（必须在工作区内）。\n' +
     '输出超过 30000 字符时保留【开头和结尾】（中间省略），因为报错信息通常在结尾。\n' +
@@ -57,7 +61,8 @@ export class RunShellTool implements Tool {
     const timeout = args.timeout || DEFAULT_TIMEOUT;
 
     // 执行目录也必须在工作区内（否则等于给了一条跳出沙箱的路）
-    let cwd = process.cwd();
+    // ⚠️ 默认目录用 getDefaultCwd()（= VS Code 工作区根），不是 process.cwd()
+    let cwd = getDefaultCwd();
     if (args.working_dir) {
       const guard = resolveInWorkspace(args.working_dir);
       if (!guard.ok) {

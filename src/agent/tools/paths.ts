@@ -60,12 +60,45 @@ export function getWorkspaceRootSafe(): string | undefined {
 }
 
 /**
+ * 工具 / 命令的默认执行目录（单一真相源）
+ *
+ * ⚠️ 为什么不能直接用 process.cwd()：
+ *   VS Code 扩展宿主进程（Extension Host）的 cwd 取决于 VS Code 是怎么被
+ *   启动的 —— 双击图标、从别的目录命令行 `code .` 打开、从任务管理器启动，
+ *   结果可能完全不同。它【不保证】等于当前工作区根目录。
+ *
+ *   后果：run_shell 会在一个用户完全没预期的目录里执行命令；
+ *        zhCommit 会去读错误目录下的 git diff；autoTest 会在错地方跑测试。
+ *
+ *   这里统一优先用 VS Code 工作区根目录，只在"用户根本没打开文件夹"
+ *   （单文件模式）时才退回 process.cwd()。
+ */
+export function getDefaultCwd(): string {
+  return getWorkspaceRootSafe() ?? process.cwd();
+}
+
+/**
  * 解析路径并校验是否在工作区内
  *
  * 规则：
- * 1. 有工作区 → 必须落在工作区内，否则拒绝
- * 2. 无工作区（单文件模式 / 测试环境）→ 只允许相对路径，
+ * 1. 相对路径按【工作区根目录】解析，绝对路径按原样解析
+ * 2. 有工作区 → 必须落在工作区内，否则拒绝
+ * 3. 无工作区（单文件模式 / 测试环境）→ 只允许相对路径，
  *    绝对路径一律拒绝（没有边界可依，放行等于没检查）
+ *
+ * ⚠️ 修复记录（2026-10-21）：一个影响生产的严重 bug
+ *
+ *   原来的实现直接 path.resolve(input) 来解析路径。Node 的 path.resolve
+ *   对【相对路径】是按 process.cwd() 解析的，不是按工作区根目录。
+ *
+ *   后果：LLM 平时用的就是相对路径（工具描述里明确鼓励用
+ *   "src/agent/loop.ts" 这种写法），这些路径会被解析到
+ *   扩展宿主进程的 cwd 下。如果那个 cwd 不等于工作区根目录
+ *   （从别的目录用 `code .` 启动、打开单文件、任务管理器启动等），
+ *   那么【每一次相对路径的编辑都会被误判成"越界"而拒绝】。
+ *
+ *   而且这个 bug 之前没被测试发现，是因为老测试全用的是绝对路径 ——
+ *   绝对路径不受影响，照样通过。现在有专门的回归测试盯着。
  *
  * @param input LLM 给的路径（相对或绝对）
  * @param allowOutside 显式放行（目前没有工具需要，留给未来的"用户手动指定文件"场景）
@@ -75,13 +108,15 @@ export function resolveInWorkspace(input: string, allowOutside = false): PathChe
     return { ok: false, resolved: '', error: '路径为空' };
   }
 
-  const resolved = path.resolve(input);
+  const root = getWorkspaceRootSafe();
+
+  // ⭐ 相对路径必须按工作区根解析，而不是 process.cwd()
+  const base = root ? path.resolve(root) : process.cwd();
+  const resolved = path.isAbsolute(input) ? path.resolve(input) : path.resolve(base, input);
 
   if (allowOutside) {
     return { ok: true, resolved };
   }
-
-  const root = getWorkspaceRootSafe();
 
   // 无工作区：只放行相对路径
   if (!root) {

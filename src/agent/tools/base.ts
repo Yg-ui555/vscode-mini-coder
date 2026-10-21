@@ -13,6 +13,8 @@
  * - ToolResult 是字符串 + is_error 标志，让 LLM 能"看到错误"自我纠错
  */
 
+import { ToolMeta, readOnlyMeta } from './meta';
+
 export interface ToolResult {
   content: string;
   isError?: boolean;
@@ -22,7 +24,18 @@ export interface Tool {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, any>;
+  /**
+   * 工具元数据：只读？破坏性？要不要并发？要不要先存快照？
+   * 权限分级和 checkpoint 都依赖它。
+   * 省略时默认按"只读"处理（保守起见，新工具应显式声明）。
+   */
+  readonly meta?: ToolMeta;
   execute(args: any): Promise<ToolResult>;
+}
+
+/** 取工具元数据，未声明时按只读处理 */
+export function getToolMeta(tool: Tool): ToolMeta {
+  return tool.meta ?? readOnlyMeta();
 }
 
 /** 把 Tool 转成 OpenAI 兼容 schema（任何 OpenAI 协议 LLM 都能用） */

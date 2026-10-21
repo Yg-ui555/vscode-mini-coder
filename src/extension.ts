@@ -43,6 +43,22 @@ export async function activate(context: vscode.ExtensionContext) {
   // ⭐ 注册正式的环境自检命令（原来只有 /doctor，用户不知道存在）
   registerDoctor(context, configManager);
 
+  // ⭐ 状态栏入口
+  //   修复记录（2026-10-21）：RUN.md 第 33 行写着"主窗口右下角状态栏会弹出
+  //   Mini-Coder 激活提示"，但整个项目从来没有 createStatusBarItem —— 照着
+  //   RUN.md 走验证清单的人会以为插件坏了。现在把这个入口补上。
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.text = '$(sparkle) Mini-Coder';
+  statusBar.tooltip = new vscode.MarkdownString(
+    '**Mini-Coder AI 编程助手**\n\n' +
+      '点击打开聊天面板\n\n' +
+      '常用命令：`/test` `/commit` `/notes` `/doctor` `/undo`',
+  );
+  statusBar.command = 'mini-coder.openChat';
+  statusBar.show();
+  context.subscriptions.push(statusBar);
+  info('状态栏入口已注册：Mini-Coder');
+
   // 注册设置 Key 命令
   context.subscriptions.push(
     vscode.commands.registerCommand('mini-coder.setApiKey', async () => {

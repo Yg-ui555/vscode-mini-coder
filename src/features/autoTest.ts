@@ -21,10 +21,8 @@ import * as vscode from 'vscode';
 import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
-import { ToolRegistry } from '../agent/tools/registry';
-import { ReadFileTool } from '../agent/tools/readFile';
-import { ApplyPatchTool } from '../agent/tools/applyPatch';
-import { RunShellTool } from '../agent/tools/runShell';
+import { createFixRegistry } from '../agent/tools/factory';
+import { getDefaultCwd } from '../agent/tools/paths';
 import { info } from '../logger';
 
 let watcher: vscode.FileSystemWatcher | undefined;
@@ -57,7 +55,8 @@ export function registerAutoTest(context: vscode.ExtensionContext, configManager
  * 不触发 AI 修复（避免副作用）
  */
 export async function runProjectTests(): Promise<{ passed: number; failed: number; total: number; output: string }> {
-  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  // ⚠️ 用 getDefaultCwd()（VS Code 工作区根），不是 process.cwd()
+  const cwd = getDefaultCwd();
   // 检测项目类型：python vs node
   const isPy =
     require('fs').existsSync(`${cwd}/pyproject.toml`) ||
@@ -160,8 +159,8 @@ async function runTestsAndMaybeFix(filePath: string, configManager: ConfigManage
     return;
   }
 
-  // 先跑测试
-  const { output, exitCode } = await execCommand(testCommand, process.cwd());
+  // 先跑测试（cwd 用工作区根，不是 process.cwd()）
+  const { output, exitCode } = await execCommand(testCommand, getDefaultCwd());
   if (didTestsPass(output, exitCode)) {
     vscode.window.showInformationMessage('✓ 测试通过');
     return;
@@ -203,7 +202,7 @@ async function execCommand(
 
 /** 包装 run_shell 工具来跑命令（兼容旧签名） */
 async function runShell(command: string): Promise<string> {
-  const r = await execCommand(command, process.cwd());
+  const r = await execCommand(command, getDefaultCwd());
   return r.output;
 }
 
@@ -229,9 +228,8 @@ async function aiFixTestFailure(
     configured.config.defaultModel,
   );
 
-  const registry = new ToolRegistry();
-  registry.register(new ReadFileTool());
-  registry.register(new ApplyPatchTool());
+  // 修复循环刻意不给 run_shell：不让 LLM 为了"试试看"乱跑命令
+  const registry = createFixRegistry();
 
   const loop = new AgentLoop(provider, registry, 10);
 
