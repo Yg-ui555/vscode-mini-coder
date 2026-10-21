@@ -23,7 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-import { OpenAIProvider } from '../agent/provider';
+import { OpenAIProvider, TokenUsage } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
 import { ToolRegistry } from '../agent/tools/registry';
 import { createDefaultRegistry } from '../agent/tools/factory';
@@ -32,6 +32,7 @@ import { setWorkspaceRoot } from '../agent/tools/paths';
 import { setApprovalMode } from '../agent/tools/approval';
 import { setEvalWorkspace } from './shim';
 import { setCheckpointEnabled } from '../agent/checkpoint/store';
+import { addUsage, emptyUsage, estimateCost, CostBreakdown } from '../util/cost';
 
 import {
   TaskMeta,
@@ -72,6 +73,12 @@ export interface TaskResult {
   changedFiles: string[];
   finalAnswer: string;
   durationMs: number;
+  /** ⭐ 本题 token 开销（provider 返回的真实用量，不是估算字符数） */
+  usage?: TokenUsage;
+  /** ⭐ 本题估算成本。priceKnown=false 表示模型不在价目表里，用的是保守默认值 */
+  cost?: CostBreakdown;
+  /** ⭐ LLM 调用轮数 = 工具调用轮数 + 1（最后一轮出结论） */
+  llmCalls?: number;
   error?: string;
 }
 
@@ -145,7 +152,17 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     changedFiles: [],
     finalAnswer: '',
     durationMs: 0,
+    usage: emptyUsage(),
+    llmCalls: 0,
   };
+
+  // ⭐ 累计本次任务的真实 token 用量。
+  //   onTokenUsage 给的 total 是【本次 run 的累计】而不是全局，
+  //   所以每题开一个独立的累加器，不会串味。
+  //   声明放在 try 外面：万一中途抛错，已经烧掉的 token 也要记进报告，
+  //   不然"跑崩了"看起来就像"没花钱"，那才是真正的骗人。
+  const tokenTotal = emptyUsage();
+  let llmCalls = 0;
 
   try {
     // 1. 沙箱
@@ -207,6 +224,13 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
             isError: !!result.isError,
             preview: result.content.slice(0, 200),
           });
+        },
+        onTokenUsage: (delta, _total) => {
+          const summed = addUsage(tokenTotal, delta);
+          tokenTotal.promptTokens = summed.promptTokens;
+          tokenTotal.completionTokens = summed.completionTokens;
+          tokenTotal.totalTokens = summed.totalTokens;
+          llmCalls++;
         },
       });
     } finally {
@@ -279,12 +303,18 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
       changedFiles: changed,
       finalAnswer: finalAnswer.slice(0, 2000),
       durationMs: Date.now() - startedAt,
+      usage: { ...tokenTotal },
+      cost: estimateCost(tokenTotal, config.model),
+      llmCalls,
     };
   } catch (e: any) {
     return {
       ...base,
       error: e?.stack || e?.message || String(e),
       durationMs: Date.now() - startedAt,
+      usage: { ...tokenTotal },
+      cost: estimateCost(tokenTotal, config.model),
+      llmCalls,
     };
   } finally {
     // 清理沙箱

@@ -49,7 +49,7 @@
  * ─────────────────────────────────────────────────────────────
  */
 
-import { OpenAIProvider } from './provider';
+import { OpenAIProvider, TokenUsage } from './provider';
 import { ToolRegistry, ToolResult } from './tools/registry';
 import { estimateMessagesTokens, contextWindowFor, DEFAULT_CONTEXT_WINDOW } from '../util/tokens';
 
@@ -60,6 +60,8 @@ export interface AgentCallbacks {
   onCompact?: (summary: string) => void;  // ← 新增：压缩事件回调
   /** 上下文用量变化（用于 UI 显示"已用 12k / 64k"） */
   onUsage?: (current: number, window: number) => void;
+  /** ⭐ 本次任务的 token 开销（评测框架据此统计成本） */
+  onTokenUsage?: (delta: TokenUsage, total: TokenUsage) => void;
 }
 
 /**
@@ -107,6 +109,10 @@ export class AgentLoop {
     signal: AbortSignal | undefined,
     callbacks: AgentCallbacks,
   ): Promise<string> {
+    // ⭐ 累计 token 用量。一次任务通常十几轮 LLM 调用，
+    //   每轮都要发一遍完整上下文，所以 prompt token 是大头。
+    const tokenTotal: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
     for (let iteration = 0; iteration < this.maxIterations; iteration++) {
       // ⭐ 每轮前检查用户是否点了"停止"
       if (signal?.aborted) return this._abortedResult(messages);
@@ -119,6 +125,13 @@ export class AgentLoop {
       for await (const chunk of this.provider.stream(messages, this.registry.schemas, signal)) {
         if (chunk.isFinal && chunk.finalResponse) {
           finalResponse = chunk.finalResponse;
+          // ⭐ 累加本轮 usage（流末尾那个 chunk 才有）
+          if (chunk.usage) {
+            tokenTotal.promptTokens += chunk.usage.promptTokens;
+            tokenTotal.completionTokens += chunk.usage.completionTokens;
+            tokenTotal.totalTokens += chunk.usage.totalTokens;
+            callbacks.onTokenUsage?.(chunk.usage, { ...tokenTotal });
+          }
         } else if (chunk.content) {
           callbacks.onText(chunk.content);
         }

@@ -139,7 +139,12 @@ async function main() {
             : result.verdict === 'error'
               ? '🔧 error'
               : '❌ fail';
-      console.log(icon.padEnd(22) + `${(result.durationMs / 1000).toFixed(1)}s`);
+      // ⭐ 每题后面直接跟成本：跑到一半就能看出"这题贵不贵"，
+      //   不用等全部跑完才在报告里翻。
+      const cost = result.cost
+        ? `¥${result.cost.cost.toFixed(4)} ${result.llmCalls ?? 0}轮`
+        : '';
+      console.log(icon.padEnd(22) + `${(result.durationMs / 1000).toFixed(1)}s`.padEnd(9) + cost);
       if (result.error) console.log(`    ↳ ${result.error.split('\n')[0]}`);
     } catch (e: any) {
       console.log(`🔧 error  ${e?.message || e}`);
@@ -162,6 +167,17 @@ async function main() {
   console.log('\n' + '─'.repeat(58));
   console.log(`Pass Rate: ${summary.passRate}%  (${summary.pass}/${summary.total})`);
   console.log(`  未达成 ${summary.fail} | 回归 ${summary.regressed} | 错误 ${summary.error}`);
+  if (args.dry) {
+    console.log('  成本：--dry 未调真实 LLM，token 恒为 0（这不代表免费）');
+  } else {
+    console.log(
+      `  成本：${summary.totalUsage.totalTokens.toLocaleString('en-US')} tok · ¥${summary.totalCost.toFixed(4)}` +
+        (summary.priceKnown ? '' : ' ⚠️模型不在价目表，按默认价估算'),
+    );
+    if (summary.pass > 0) {
+      console.log(`  每通过一题：¥${summary.costPerPass.toFixed(4)}`);
+    }
+  }
   console.log('─'.repeat(58) + '\n');
   console.log(`📄 报告：${md}`);
   console.log(`📊 原始数据：${json}\n`);

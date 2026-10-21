@@ -11,6 +11,8 @@ import * as path from 'path';
 
 import { TaskResult } from './runner';
 import { TaskTier, TIER_LABEL, evalRoot } from './types';
+import { TokenUsage } from '../agent/provider';
+import { addUsage, emptyUsage, estimateCost } from '../util/cost';
 
 export interface EvalSummary {
   startedAt: string;
@@ -24,6 +26,16 @@ export interface EvalSummary {
   error: number;
   passRate: number;
   byTier: Record<TaskTier, { total: number; pass: number; rate: number }>;
+  /** ⭐ 全部题目的 token 合计 */
+  totalUsage: TokenUsage;
+  /** ⭐ 全部题目的估算成本（元） */
+  totalCost: number;
+  /** ⭐ 价目表是否覆盖了当前模型（false = 用保守默认值，数字仅供参考） */
+  priceKnown: boolean;
+  /** ⭐ 单题平均成本 */
+  avgCost: number;
+  /** ⭐ 每通过一题平均花多少钱 —— 比总成本更能横向比较两个方案 */
+  costPerPass: number;
   results: TaskResult[];
 }
 
@@ -53,6 +65,13 @@ export function summarize(results: TaskResult[], meta: {
   const regressed = results.filter((r) => r.verdict === 'regressed').length;
   const error = results.filter((r) => r.verdict === 'error').length;
 
+  // ⭐ 成本汇总
+  let totalUsage = emptyUsage();
+  for (const r of results) {
+    if (r.usage) totalUsage = addUsage(totalUsage, r.usage);
+  }
+  const totalCost = estimateCost(totalUsage, meta.model).cost;
+
   return {
     startedAt: new Date().toISOString(),
     durationMs: meta.durationMs,
@@ -65,6 +84,14 @@ export function summarize(results: TaskResult[], meta: {
     error,
     passRate: results.length ? Math.round((pass / results.length) * 100) : 0,
     byTier,
+    totalUsage,
+    totalCost,
+    priceKnown: estimateCost(totalUsage, meta.model).priceKnown,
+    avgCost: results.length
+      ? Math.round((totalCost / results.length) * 10000) / 10000
+      : 0,
+    // 全军覆没时用 pass 兜底会得到 Infinity，那种数字放进报告就是误导，直接记 0
+    costPerPass: pass ? Math.round((totalCost / pass) * 10000) / 10000 : 0,
     results,
   };
 }
@@ -143,6 +170,64 @@ export function toMarkdown(s: EvalSummary): string {
   lines.push(`| 基础设施错误 | ${s.error} |`);
   lines.push('');
 
+  // ── 成本 ──
+  // pass rate 打满之后，唯一还有区分度的信号就是"谁更便宜"。
+  lines.push('## 成本');
+  lines.push('');
+  if (!s.priceKnown) {
+    lines.push(
+      '> ⚠️ 模型 `' +
+        s.model +
+        '` 不在价目表里，下面用的是保守默认值估算，**只看相对大小，别当绝对金额**。',
+    );
+    lines.push('> 在 `src/util/cost.ts` 的 `MODEL_PRICES` 里补一条就能变准。');
+    lines.push('');
+  }
+  lines.push('| 指标 | 数值 |');
+  lines.push('|---|---|');
+  lines.push(`| 总 token | ${s.totalUsage.totalTokens.toLocaleString('en-US')} |`);
+  lines.push(
+    `| ├ 输入 | ${s.totalUsage.promptTokens.toLocaleString('en-US')} |`,
+  );
+  lines.push(
+    `| └ 输出 | ${s.totalUsage.completionTokens.toLocaleString('en-US')} |`,
+  );
+  lines.push(`| **总成本** | **¥${s.totalCost.toFixed(4)}** |`);
+  lines.push(`| 单题均摊 | ¥${s.avgCost.toFixed(4)} |`);
+  lines.push(`| 每通过一题 | ${s.pass ? `¥${s.costPerPass.toFixed(4)}` : '—（没通过任何题）'} |`);
+  lines.push('');
+
+  // 最贵的三题 —— 通常就是 prompt 反复膨胀的那几题
+  const byCost = [...s.results]
+    .filter((r) => r.cost)
+    .sort((a, b) => (b.cost!.cost || 0) - (a.cost!.cost || 0));
+  if (byCost.length > 0) {
+    lines.push('### 最贵的 3 题');
+    lines.push('');
+    lines.push('| 题目 | 结果 | LLM 轮数 | token | 成本 |');
+    lines.push('|---|---|---|---|---|');
+    for (const r of byCost.slice(0, 3)) {
+      const icon =
+        r.verdict === 'pass'
+          ? '✅'
+          : r.verdict === 'regressed'
+            ? '⚠️'
+            : r.verdict === 'error'
+              ? '🔧'
+              : '❌';
+      lines.push(
+        `| ${r.id} ${r.title} | ${icon} | ${r.llmCalls ?? 0} | ` +
+          `${(r.usage?.totalTokens ?? 0).toLocaleString('en-US')} | ¥${(r.cost?.cost ?? 0).toFixed(4)} |`,
+      );
+    }
+    lines.push('');
+    lines.push(
+      '> 判读：**贵的题不一定是难题**，更常见的原因是 agent 在原地打转——' +
+        '每轮都把全量上下文重发一遍，轮数一多 token 就线性涨。轮数比 token 更值得盯。',
+    );
+    lines.push('');
+  }
+
   // ── 分档 ──
   lines.push('## 分档表现');
   lines.push('');
@@ -191,14 +276,16 @@ export function toMarkdown(s: EvalSummary): string {
   // ── 逐题 ──
   lines.push('## 逐题明细');
   lines.push('');
-  lines.push('| 题目 | 档位 | 结果 | 修复/达成 | 回归 | 用时 |');
-  lines.push('|---|---|---|---|---|---|');
+  lines.push('| 题目 | 档位 | 结果 | 修复/达成 | 回归 | 用时 | 轮数 | token | 成本 |');
+  lines.push('|---|---|---|---|---|---|---|---|---|');
   for (const r of s.results) {
     const icon =
       r.verdict === 'pass' ? '✅' : r.verdict === 'regressed' ? '⚠️' : r.verdict === 'error' ? '🔧' : '❌';
     lines.push(
       `| ${r.id} | ${TIER_LABEL[r.tier as TaskTier] || r.tier} | ${icon} ${r.verdict} | ` +
-        `${r.fixedCases.length} | ${r.regressions.length} | ${(r.durationMs / 1000).toFixed(1)}s |`,
+        `${r.fixedCases.length} | ${r.regressions.length} | ${(r.durationMs / 1000).toFixed(1)}s | ` +
+        `${r.llmCalls ?? 0} | ${(r.usage?.totalTokens ?? 0).toLocaleString('en-US')} | ` +
+        `¥${(r.cost?.cost ?? 0).toFixed(4)} |`,
     );
   }
   lines.push('');

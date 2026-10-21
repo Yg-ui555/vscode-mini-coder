@@ -39,6 +39,36 @@ export interface StreamChunk {
   content?: string;
   isFinal?: boolean;
   finalResponse?: LLMResponse;
+  /** 本次请求的 token 用量（如果 provider 返回了） */
+  usage?: TokenUsage;
+}
+
+/**
+ * token 用量
+ *
+ * ⭐ 为什么现在才加（2026-10-21）
+ *   评测框架跑完只知道「过了几题」，不知道「花了多少钱、哪题最贵」。
+ *   在 pass rate 已经 100% 的情况下，成本就成了唯一还有区分度的指标 ——
+ *   两个都做对的题，谁更便宜，是有意义的工程信号。
+ */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/** 把 provider 返回的 usage JSON 规整成 TokenUsage */
+function normalizeUsage(raw: any): TokenUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const p = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0);
+  const c = Number(raw.completion_tokens ?? raw.output_tokens ?? 0);
+  const t = Number(raw.total_tokens ?? 0);
+  if (p === 0 && c === 0 && t === 0) return undefined;
+  return {
+    promptTokens: p,
+    completionTokens: c,
+    totalTokens: t || p + c,
+  };
 }
 
 export class OpenAIProvider {
@@ -57,15 +87,18 @@ export class OpenAIProvider {
     tools: Array<{ type: string; function: any }>,
     signal?: AbortSignal,
   ): AsyncGenerator<StreamChunk> {
-    const body = {
+    const body: Record<string, any> = {
       model: this.model,
       messages,
       stream: true,
       ...(tools.length > 0 ? { tools } : {}),
+      // ⭐ 显式要求返回 token 用量。
+      //   多数 OpenAI 兼容服务只在带这个参数时才在流末尾发 usage chunk。
+      //   但不是所有 provider 都认（老版本 / 私有网关可能直接 400），
+      //   所以下面做了降级：一旦报 400 且提到 stream_options，就摘掉重试一次。
+      stream_options: { include_usage: true },
     };
 
-    // 包到 retry 里：网络抖了自动重试（最多 3 次，1s/2s/4s 指数退避）
-    // 4xx 错误（用户配错）不重试，5xx/网络错才重试
     const resp = await retry(
       async () => {
         try {
@@ -80,6 +113,12 @@ export class OpenAIProvider {
           });
           if (!r.ok) {
             const errText = await r.text();
+            // provider 不支持 stream_options → 摘掉再试一次（只降级这一次）
+            if (r.status === 400 && body.stream_options && /stream_options/i.test(errText)) {
+              warn(`${this.baseUrl} 不支持 stream_options，本次不请求 token 用量`);
+              delete body.stream_options;
+              throw new NetworkError('stream_options unsupported'); // 触发 retry，但下次不再带
+            }
             // 根据 status 抛对应的细分错误（借鉴 goose 的 describe_error）
             // 类比：发烧细分到"病毒感冒"vs"细菌感冒"——治法不同
             if (r.status === 401 || r.status === 403) {
@@ -120,6 +159,7 @@ export class OpenAIProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     let contentBuf = '';
+    let usageBuf: TokenUsage | undefined;
     const toolCallsMap = new Map<number, ToolCallRequest>();
 
     try {
@@ -139,6 +179,18 @@ export class OpenAIProvider {
 
           try {
             const chunk = JSON.parse(data);
+
+            // ⭐ usage 必须【在 delta 判断之前】解析
+            //   OpenAI 兼容协议在流式结束时，会额外发一个
+            //   { choices: [], usage: {...} } 的 chunk。
+            //   原来这里写的是 `const delta = chunk.choices?.[0]?.delta;
+            //   if (!delta) continue;` —— usage 所在的那个 chunk 恰好没有 delta，
+            //   于是被直接跳过，用量永远拿不到。这是本文件修过的一个隐蔽 bug。
+            const usage = normalizeUsage(chunk.usage);
+            if (usage) {
+              usageBuf = usage;
+            }
+
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
@@ -179,6 +231,7 @@ export class OpenAIProvider {
         toolCalls: Array.from(toolCallsMap.values()),
         finishReason: toolCallsMap.size > 0 ? 'tool_calls' : 'stop',
       },
+      ...(usageBuf ? { usage: usageBuf } : {}),
     };
   }
 }
