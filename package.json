@@ -64,6 +64,10 @@
         "title": "Mini-Coder: 列出历史会话"
       },
       {
+        "command": "mini-coder.listNotes",
+        "title": "Mini-Coder: 列出错题本归档"
+      },
+      {
         "command": "mini-coder.doctor",
         "title": "Mini-Coder: 环境自检"
       },
@@ -104,6 +108,21 @@
           "type": "string",
           "default": "",
           "markdownDescription": "覆盖 API 地址。留空则用 Provider 默认值。主要用于切换 MiniMax 国内站（`https://api.minimaxi.com/v1`）/ 国际站（`https://api.minimax.io/v1`）—— 两边账号不通用，key 也互不相认。"
+        },
+        "mini-coder.autoTestMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "related",
+            "all"
+          ],
+          "enumDescriptions": [
+            "关闭：保存文件时完全不自动跑测试",
+            "相关测试（推荐）：保存测试文件跑该文件；保存源码时，只跑引用了它的测试",
+            "全量：保存任何源码都跑整个项目的测试（慢，但最保险）"
+          ],
+          "default": "related",
+          "markdownDescription": "**自动跑测试**的触发范围。保存文件后自动运行相关测试，失败时提示 AI 修复。"
         }
       }
     }

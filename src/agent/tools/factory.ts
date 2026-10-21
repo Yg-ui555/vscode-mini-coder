@@ -23,6 +23,7 @@ import { GrepTool } from './grep';
 import { GlobTool } from './glob';
 import { ListDirTool } from './listDir';
 import { RestoreFileTool } from './restoreFile';
+import { RecordNoteTool } from './recordNote';
 import { ReadOnlyToolNames } from './meta';
 
 /**
@@ -42,6 +43,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new GrepTool());
   registry.register(new GlobTool());
   registry.register(new ListDirTool());
+  registry.register(new RecordNoteTool());
 
   // 写入组：有副作用，需要确认 + checkpoint
   registry.register(new ApplyPatchTool());

@@ -2,32 +2,18 @@
 
 一个**为中文开发者优化**的 VS Code AI 编程助手。三个核心特色：
 
-1. **自动跑测试 + 自动修**：保存文件 → 自动 pytest → 失败 → AI 一键修复
+1. **自动跑测试 + 自动修**：保存代码 → 找到相关测试 → 自动跑 → 失败 → AI 一键修复
 2. **中文 commit 规范**：`功能:` / `修复:` / `文档:` / `重构:` 等
-3. **错题本自动归档**：每次修改自动写到 `.notes/今天.md`，按日期/文件记录
-
-## 配置 API Key
-
-本扩展采用 **BYOK**（自带 API Key）模式，**不内置任何 API key**，零成本零风险。
-
-第一次启动会弹窗让你填：
-
-| Provider | base_url | model 示例 |
-|---|---|---|
-| DeepSeek（推荐） | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| MiniMax | `https://api.minimax.io/v1` | `MiniMax-M3` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
-| Ollama（本地）| `http://localhost:11434/v1` | `qwen2.5-coder:7b` |
-
-填过的 key 加密存在 VS Code SecretStorage，不会上传。
+3. **错题本自动归档**：AI 把「为什么这么改、踩了什么坑、测试过没有」写进 `.notes/`，按日期归档
 
 ## 命令列表
 
 - `Mini-Coder: 设置 API Key` — 设置或更换 API Key
 - `Mini-Coder: 打开聊天面板` — 打开 AI 聊天面板（也可点右下角状态栏）
-- `Mini-Coder: 自动跑测试` — 自动跑测试并修复
+- `Mini-Coder: 自动跑测试` — 跑全项目测试，失败可让 AI 修
 - `Mini-Coder: 生成中文 commit` — 自动生成中文 commit message
-- `Mini-Coder: 查看今日错题本` — 打开今天的错题本
+- `Mini-Coder: 查看今日错题本` — 打开今天的错题记录
+- `Mini-Coder: 列出错题本归档` — 查看所有归档日期
 - `Mini-Coder: 恢复历史会话` — 切换到之前的对话（对话自动落盘，关掉 VS Code 也在）
 - `Mini-Coder: 列出历史会话` — 查看当前工作区的全部历史会话
 - `Mini-Coder: 环境自检` — 一键诊断配置问题
@@ -45,25 +31,62 @@
 | `/doctor` | 环境自检 |
 | `/logs` | 复制日志到剪贴板 |
 
+## 三个特色的实际行为
+
+### 1. 自动跑测试
+
+保存文件后自动触发（可用 `mini-coder.autoTestMode` 调整）：
+
+| 你改了什么 | 会发生什么 |
+|---|---|
+| 测试文件 | 直接跑这个测试文件 |
+| 源代码 | 找出引用了它的测试，只跑那些（找不到就不跑，避免假绿灯） |
+| 连续保存多个文件 | 1.5 秒防抖，合并成一次 |
+
+跑完失败会问你「要不要 AI 自动修」，修完**按退出码**重新验证（不是 `includes('passed')`—— 那种写法在 `3 failed, 5 passed` 上永远判通过）。最多修 3 轮，还不通过就停下来问人，不会无限烧钱。
+
+### 2. 错题本
+
+`.notes/2026-10-21.md` 长这样：
+
+```markdown
+## 16:37 ⭐ 修 autoTest 的 includes(passed) 误判
+
+原来判断用的是 output.includes("passed")，但 pytest 失败时输出是
+"3 failed, 5 passed"，这行字里就有 passed，于是永远判定通过。
+
+**改动**：
+- `autoTest.ts` — didTestsPass 改用退出码
+
+**踩到的坑**：
+- 同一个文件里 :82 的注释写了不能用 includes 判断，:276 又犯了一次
+
+**测试**：vitest → 16 passed
+```
+
+富条目由 AI 通过 `record_note` 工具在任务结束时写入（只有它知道原因和坑），文件保存事件只记一行轻条目兜底。
+
+### 3. 中文 commit
+
+`功能:` / `修复:` / `文档:` / `重构:` / `测试:` / `样式:` / `杂项:`
+
+---
+
 ## 两个差异化能力
 
-### 1. 改错了能一键退回
+### 改错了能一键退回
 
-每次 AI 写文件之前，Mini-Coder 会自动存一份快照（存放在 `.mini-coder/checkpoints/`，已在 `.gitignore` 中）。
+每次 AI 写文件之前会自动存快照（`.mini-coder/checkpoints/`，已 gitignore）。
 
-- 一次改动多个文件 = 一个快照，点一次 `/undo` 全部退回，不用点 N 次
+- 一次改动多个文件 = 一个快照，点一次 `/undo` 全部退回
 - 新建的文件也存快照 —— 撤销时直接删掉
-- AI 自己发现改错了，也能调 `restore_file` 工具主动回滚
+- AI 自己发现改错了，也能调 `restore_file` 主动回滚
 
-> 参考：goose 官方 blog 承认 *"conversational memory isn't a snapshot of your codebase"*，让用户自己 git commit 救；nanobot 全仓没有文件级 undo。**这两家都没做这个能力。**
+> 参考：goose 官方 blog 承认 *"conversational memory isn't a snapshot of your codebase"*；nanobot 全仓没有文件级 undo。**这两家都没做这个能力。**
 
-### 2. 找不到代码会自己搜
+### 9 个工具，其中 3 个是搜索
 
-8 个工具，其中 3 个是搜索：
-
-- `grep` — 按内容搜，返回 `文件:行号:内容`
-- `glob` — 按文件名模式找
-- `list_dir` — 列目录
+`grep`（按内容搜，返回 `文件:行号:内容`）、`glob`（按文件名模式找）、`list_dir`（列目录）。
 
 自动跳过 `node_modules` / `.git` / `dist`，不会卡死。
 
@@ -73,7 +96,7 @@
 npm install
 npm run compile
 npm run build:webview
-npm test              # 144 个用例
+npm test              # 171 个用例
 # 按 F5 跑 Extension Development Host
 ```
 
@@ -81,10 +104,14 @@ npm test              # 144 个用例
 
 ## 架构
 
-- `src/agent/tools/`：工具层（8 个工具 + 工厂 + 元数据 + 路径白名单 + 审批）
-- `src/agent/checkpoint/`：文件快照与回滚
-- `src/session/`：会话 JSONL 持久化
-- `src/agent/`：Agent 核心（provider、loop、context）
-- `src/features/`：3 个特色（autoTest、zhCommit、notes）
-- `src/eval/`：评测框架（14 道题，L4 回归检测）
-- `src/config.ts`：BYOK 配置（`.env` > 设置项 > SecretStorage）
+```
+src/
+├── agent/                 Agent 核心（provider / loop / context）
+│   ├── tools/             9 个工具 + 工厂 + 元数据 + 路径白名单 + 审批
+│   └── checkpoint/        文件快照与回滚
+├── session/               会话 JSONL 持久化
+├── features/              3 个特色（autoTest / zhCommit / notes）
+├── util/                  纯逻辑（token 计数、错题本存储）
+├── eval/                  评测框架（14 道题，L4 回归检测）
+└── config.ts              BYOK 配置（.env > 设置项 > SecretStorage）
+```

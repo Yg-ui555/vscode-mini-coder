@@ -34,6 +34,11 @@ export const window = {
     throw new Error('stub: cannot create webview panel in test');
   },
   activeTextEditor: undefined,
+  // 状态栏临时提示（autoTest 跑完测试后会用）
+  setStatusBarMessage: () => ({ dispose: () => {} }),
+  // withProgress：直接执行回调
+  withProgress: (_opts: any, task: any) => task({ report: () => {} }, { isCancellationRequested: false }),
+  createOutputChannel: () => ({ appendLine: () => {}, show: () => {}, dispose: () => {} }),
 };
 
 export const commands = {

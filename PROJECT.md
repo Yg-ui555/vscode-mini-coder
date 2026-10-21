@@ -150,22 +150,41 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 
 | 项 | 状态 |
 |---|---|
-| 工具数量 | **8 个**：read_file / grep / glob / list_dir / apply_patch / write_file / restore_file / run_shell |
-| 测试 | **144 个用例 / 14 个文件全绿** |
-| pass rate | **未测**（评测集已建成，但 API 账号余额不足，尚未跑真机） |
+| 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
+| 测试 | **171 个用例 / 16 个文件全绿** |
+| pass rate | **100%（14/14，DeepSeek）** —— ⚠️ 评测集已饱和，详见下方 |
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
 | 会话持久化 | ✅ JSONL 落盘，关掉 VS Code 再打开对话还在 |
 | Token 计数 | ✅ 中英文分别估算，按上下文窗口 70% 触发压缩 |
-| autoTest | ✅ 已修 `head -50`（Windows 不兼容）+ 误判退出码 |
+| autoTest | ✅ **2026-10-21 重写**：源码变更也会触发、退出码判定、防抖、最多修 3 轮 |
 | zhCommit | ✅ 已修 untracked 文件漏读 + `type` 命令不可靠 |
-| notes | ⚠️ 只记时间路径，没记 diff 和踩坑，与文档描述不符（**下一步**） |
+| notes | ✅ **2026-10-21 重写**：`record_note` 工具写富条目（原因/踩坑/测试），索引页 + 去重 |
 | 缺失能力 | 三档权限分级（工具元数据已就位，UI 未接）、diff 预览确认、MCP、Skills、中断续跑 |
 | 已知硬伤 | autocompact 已改为「保住 tool 消息 + 压缩后补 continuation」 |
 
+### ⚠️ 评测集已饱和（2026-10-21 首次真跑）
+
+首次真实跑批：**14/14 全过，0 回归，0 错误**（deepseek-chat，312 秒）。
+
+每题都是「全部目标 case 修好 + 零残留」，不是「修一个就算过」的宽松判定。
+
+**但满分本身是危险信号** —— 项目自己的 `eval/README.md` 写过「高分说明题目太简单」。
+现在改 prompt / 调工具 / 换模型，数字都不会动，**失去了反馈信号**。
+
+现有 14 题的共同短板：**全是自包含的单个 JS 文件**。下一批要补：
+
+| 维度 | 覆盖情况 | 为什么重要 |
+|---|---|---|
+| 多文件 + 真实构建 | ❌ 全是单文件 | 真实改动要过 `tsc` / `npm test` 才算数 |
+| 长仓库探索 | ❌ 文件都在沙箱根 | 真实目标在 5 层外，要 grep 定位 + 多次跳转 |
+| **工具纪律** | ❌ 没有 | 不该用 `run_shell` 时用了、不该改测试时改了 → 应判失败 |
+| 成本约束 | ❌ 没有 | 限 token 预算，看它会不会绕远路 |
+| token 用量统计 | ❌ 框架没记 usage | 现在不知道花了多少钱、哪题最贵 |
+
 ### 🆕 2026-10-21 加固记录
 
-**新增**：grep / glob / list_dir 三工具 · 文件 checkpoint 回滚 · restore_file 工具 · 会话 JSONL 持久化 · token 计数 · 工具元数据（readOnly / destructive）· 状态栏入口
+**新增**：grep / glob / list_dir / record_note 四工具 · 文件 checkpoint 回滚 · restore_file · 会话 JSONL 持久化 · token 计数 · 工具元数据 · 状态栏入口 · `mini-coder.autoTestMode` 设置项
 
 **修掉的 bug**：
 
@@ -173,6 +192,9 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 |---|---|
 | 相对路径按 `process.cwd()` 解析 | ⭐ **影响生产**：从别的目录启动 VS Code 时，所有相对路径编辑都会被误判成越界而拒绝 |
 | glob 剪枝过度 | 模式以 `*` 开头时中间目录被全部剪掉，工具永远返回「没有匹配」——极具误导性 |
+| **autoTest 触发条件反了** | ⭐ 只有测试文件变更才跑测试；用户改源码什么都不发生，特色形同虚设 |
+| **autoTest 用 includes('passed') 判定** | ⭐ `"3 failed, 5 passed"` 里就有 passed → 测试挂了也判通过 → 永不触发 AI 修复，核心闭环断裂 |
+| 记录错题本与 features/notes 循环依赖 vscode | 工具层加载即崩（评测 CLI / 纯 node 环境） |
 | 设置项没接 `getConfiguration` | 用户在设置界面改 provider / model 完全无效果 |
 | `MINI_CODER_BASE_URL` 没人读 | MiniMax 国内站 / 国际站无法切换 |
 | `process.cwd()` 当工作目录 | run_shell / autoTest / zhCommit 可能在用户没预期的目录执行 |

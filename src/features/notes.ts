@@ -1,134 +1,136 @@
 /**
- * 特色 3：错题本自动归档
+ * 特色 3：错题本自动归档 —— VS Code 侧接线层
  *
- * 为什么做这个：
- * - 改完代码就忘了为什么改、改了什么、踩了什么坑
- * - 别人没做因为要做"个人记忆"层，技术上要持久化
- * - 我们做的事：每次修改 → 自动写到 .notes/今天.md
+ * ⚠️ 2026-10-21 重写：之前的实现和宣传严重不符
  *
- * 工作流：
- * 1. 用户每次保存 .py / .ts / .js 文件
- * 2. 看 git diff 或文件修改历史
- * 3. 自动追加到 `.notes/今天.md`
- * 4. 文件按日期归档，方便回顾
+ * PROJECT.md 写的是「文件名 / 改动类型 / 关键 diff / 测试结果」，
+ * 但旧实现只写了三行：时间、文件名、路径。没有任何原因、没有踩坑 ——
+ * 而"踩了什么坑"恰恰是错题本的全部价值所在。
  *
- * 错题本格式：
- * # 2025-10-15 学习记录
+ * ─────────────────────────────────────────────────────────────
+ * 本文件只负责「什么时候触发」和「给用户看什么」，
+ * 【怎么写文件】全在 util/notesStore.ts 里（纯 Node，不依赖 vscode）。
  *
- * ## 14:30 - main.py
- * - 修改：把同步函数改成 async
- * - 关键 diff：
- *   - sync_func(x) -> await async_func(x)
- * - 测试结果：pytest 通过
- * - 踩坑：Python 3.10 之前 await 不能用
+ * 这个分离是必须的：record_note 工具也要写错题本，
+ * 如果它 import 本文件，就会连带把 vscode 拉进来，
+ * 导致评测 CLI / 单测等 VS Code 之外的环境直接崩。
+ * ─────────────────────────────────────────────────────────────
  *
- * 这是真差异化：
- * - 别人：改完不记录
- * - 你：每次改动都自动归档
- * - 学习价值：一年后回看，知道自己踩过什么坑
+ * 两条来源，内容不重复：
+ *   A)【agent 主动记录】record_note 工具
+ *      agent 知道自己为什么这么改、踩了什么坑、测试过没有 → 富条目
+ *   B)【watcher 被动记录】文件保存事件
+ *      用户手动改代码时 agent 不知道 → 轻条目，同文件 5 分钟内只记一次
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs/promises';
 import * as path from 'path';
+import { toWorkspaceRelative } from '../agent/tools/paths';
+import {
+  appendNoteEntry,
+  readTodayNote,
+  listNoteDays,
+  getNotesDir,
+  NoteEntry,
+} from '../util/notesStore';
+import { info, warn } from '../logger';
 
 let watcher: vscode.FileSystemWatcher | undefined;
 
-export function registerNotes(context: vscode.ExtensionContext) {
-  // 监听所有代码文件保存
-  watcher = vscode.workspace.createFileSystemWatcher('**/*.{py,ts,js,tsx,jsx,go,rs,java}');
+/** 同一文件在这个时间窗内只被动记一次（毫秒），避免连续保存刷屏 */
+const DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 
-  watcher.onDidChange(async (uri) => {
-    await appendToNotes(uri, '文件变更');
+const lastPassiveRecord = new Map<string, number>();
+
+function workspaceRoot(): string | undefined {
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+// ─────────────────────── 注册 ───────────────────────
+
+export function registerNotes(context: vscode.ExtensionContext) {
+  watcher = vscode.workspace.createFileSystemWatcher(
+    '**/*.{py,ts,tsx,js,jsx,go,rs,java,c,cpp,h}',
+  );
+
+  watcher.onDidChange(async (uri: vscode.Uri) => {
+    const now = Date.now();
+    const last = lastPassiveRecord.get(uri.fsPath) ?? 0;
+    if (now - last < DEDUPE_WINDOW_MS) return; // 连续保存不重复记
+    lastPassiveRecord.set(uri.fsPath, now);
+
+    const root = workspaceRoot();
+    if (!root) return;
+
+    await appendNoteEntry(root, {
+      kind: 'watch',
+      time: new Date().toTimeString().slice(0, 5),
+      title: `手动修改：${path.basename(uri.fsPath)}`,
+      files: [{ path: toWorkspaceRelative(uri.fsPath), change: '手动修改' }],
+    });
   });
 
   context.subscriptions.push(watcher);
 
-  // 手动命令：查看今日错题本
+  // 打开今天的错题本
   context.subscriptions.push(
     vscode.commands.registerCommand('mini-coder.viewNotes', async () => {
-      const today = getTodayFileName();
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showInformationMessage('请先打开一个文件夹');
+      const root = workspaceRoot();
+      if (!root) {
+        vscode.window.showInformationMessage('请先在 VS Code 里打开一个项目文件夹');
         return;
       }
 
-      const notesPath = path.join(workspaceFolder.uri.fsPath, '.notes', today);
-
       try {
-        const doc = await vscode.workspace.openTextDocument(notesPath);
+        const doc = await vscode.workspace.openTextDocument(
+          path.join(getNotesDir(root), (await listNoteDays(root))[0] ?? ''),
+        );
         await vscode.window.showTextDocument(doc);
       } catch {
-        vscode.window.showInformationMessage(`今日错题本不存在: ${notesPath}`);
+        vscode.window.showInformationMessage(
+          '今天还没有错题记录。\n' +
+            '让 Mini-Coder 改完代码后会自动记录它学到了什么，也可以手动执行 /undo 试一下。',
+        );
       }
+    }),
+  );
+
+  // 列出所有归档
+  context.subscriptions.push(
+    vscode.commands.registerCommand('mini-coder.listNotes', async () => {
+      const root = workspaceRoot();
+      if (!root) {
+        vscode.window.showInformationMessage('请先打开一个项目文件夹');
+        return;
+      }
+
+      const days = await listNoteDays(root);
+      if (days.length === 0) {
+        vscode.window.showInformationMessage('还没有任何错题记录');
+        return;
+      }
+
+      info(`错题本归档（${days.length} 天）：\n${days.map((d) => `  .notes/${d}`).join('\n')}`);
+      vscode.window.showInformationMessage(
+        `共 ${days.length} 天的错题记录，列表见「输出 → Mini-Coder」`,
+      );
     }),
   );
 }
 
-/**
- * 追加改动到今天的错题本
- */
-async function appendToNotes(uri: vscode.Uri, action: string) {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  if (!workspaceFolder) return;
+// ─────────────────────── 供 slash command 用 ───────────────────────
 
-  const workspaceRoot = workspaceFolder.uri.fsPath;
-  const today = getTodayFileName();
-  const notesDir = path.join(workspaceRoot, '.notes');
-  const notesPath = path.join(notesDir, today);
-
-  const filePath = uri.fsPath;
-  const fileName = path.basename(filePath);
-  const now = new Date().toTimeString().slice(0, 5); // HH:MM
-
-  const entry =
-    `\n## ${now} - ${fileName}\n` +
-    `- 操作: ${action}\n` +
-    `- 路径: \`${path.relative(workspaceRoot, filePath)}\`\n` +
-    `- 时间戳: ${new Date().toISOString()}\n`;
-
-  // 自动创建 .notes 目录
-  await fs.mkdir(notesDir, { recursive: true });
-
-  // 检查文件是否存在，不存在则建 header
-  let existing = '';
-  try {
-    existing = await fs.readFile(notesPath, 'utf-8');
-  } catch {
-    existing = `# ${today.slice(0, 10)} 学习记录\n\n> 自动生成的代码改动记录。每次保存代码文件时，会自动追加到这里。\n`;
-  }
-
-  const updated = existing + entry;
-
-  try {
-    await fs.writeFile(notesPath, updated, 'utf-8');
-  } catch (e: any) {
-    console.error('写入错题本失败:', e.message);
-  }
-}
-
-/**
- * 今天的文件名（2025-10-15.md）
- */
-function getTodayFileName(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}.md`;
-}
-
-/**
- * 暴露给 slash command /notes：读今天的错题本内容
- */
+/** 读今天的错题本内容（/notes 用） */
 export async function readTodayNotes(): Promise<string> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  if (!workspaceFolder) return '';
-  const notesPath = path.join(workspaceFolder.uri.fsPath, '.notes', getTodayFileName());
-  try {
-    return await fs.readFile(notesPath, 'utf-8');
-  } catch {
-    return '';
-  }
+  const root = workspaceRoot();
+  if (!root) return '';
+  return readTodayNote(root);
+}
+
+/** 写一条 agent 富条目（record_note 工具用，见 agent/tools/recordNote.ts） */
+export async function writeAgentNote(root: string, entry: NoteEntry): Promise<string | null> {
+  const written = await appendNoteEntry(root, entry);
+  if (!written) warn('错题本写入失败');
+  else info(`[错题本] ${written}`);
+  return written;
 }
