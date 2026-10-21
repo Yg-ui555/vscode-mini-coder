@@ -12,5 +12,6 @@ webview-ui/node_modules/
 # RESULTS.md 建议提交（它是项目对外展示的基线数字）
 eval/results.json
 eval/results-*.json
-# Mini-Coder ����ʱ�浵��checkpoint������ ��Ҫ���û��ֿ�
+
+# Mini-Coder 运行时存档（checkpoint 快照）—— 不要进用户仓库
 .mini-coder/
