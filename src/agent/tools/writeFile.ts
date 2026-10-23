@@ -13,6 +13,7 @@ import { resolveInWorkspace, toWorkspaceRelative } from './paths';
 import { approveToolCall } from './approval';
 import { writeMeta } from './meta';
 import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
+import { diffFile } from '../../util/diff';
 
 export class WriteFileTool implements Tool {
   readonly name = 'write_file';
@@ -49,6 +50,8 @@ export class WriteFileTool implements Tool {
     const cpId = snapshotOperation(this.name, [{ absPath: filePath, before }]);
 
     // ⭐ 权限决策：只读档会直接拒（新建文件也算"写"，一样要拦）
+    //   2026-10-22 新增 diff 预览：覆盖已有文件是最危险的写操作
+    //   （整个内容被替换），必须让用户看清"到底换成了什么"。
     const decision = await approveToolCall({
       toolName: this.name,
       meta: this.meta,
@@ -58,6 +61,8 @@ export class WriteFileTool implements Tool {
         : `将新建文件 ${toWorkspaceRelative(filePath)}`,
       // 新建文件比覆盖轻得多：askWrites 档免打扰，只读档照样拦
       lowRisk: !exists,
+      // 新建文件也给 diff（能看清要创建什么），覆盖文件更要给
+      preview: [diffFile(filePath, before, args.content)],
     });
     if (!decision.approved) {
       if (cpId) discardCheckpoint(cpId);

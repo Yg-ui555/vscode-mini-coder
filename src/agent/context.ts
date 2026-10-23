@@ -22,6 +22,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  listAllSkills,
+  buildSkillsIndex,
+  buildAlwaysSkillsBlock,
+} from '../skills';
+import { describeLimits } from './limits';
 
 /** 项目级规则文件，agent 启动时自动加载 */
 const BOOTSTRAP_FILES = ['AGENTS.md', 'SOUL.md', 'USER.md'];
@@ -31,24 +37,31 @@ const MAX_BOOTSTRAP_BYTES = 50_000;
 
 export class ContextBuilder {
   /**
-   * @param workspaceRoot 当前 VS Code 工作区根目录（用于找 AGENTS.md）
+   * @param workspaceRoot 当前 VS Code 工作区根目录（用于找 AGENTS.md 和 skills/）
    *                     传 null 时跳过 bootstrap（用于测试 / 单文件模式）
+   * @param extensionPath 扩展安装目录（用于找内置技能）
+   *                     传 null 时不加载内置技能
    */
-  constructor(private workspaceRoot: string | null = null) {}
+  constructor(
+    private workspaceRoot: string | null = null,
+    private extensionPath: string | null = null,
+  ) {}
 
   /**
    * 拼装完整 system prompt
    * 拼接顺序（重要性递减）：
    *   1. identity（身份 + 工作流 + 中文 commit + 错题本 + 工具限制）
    *   2. bootstrap files（用户写的项目规则）
-   *   3. project info（当前工作区路径）
+   *   3. skills（always 技能正文 + 其余技能的一行索引）
+   *   4. project info（当前工作区路径）
    */
   buildSystemPrompt(): string {
     const identity = this._getIdentity();
     const bootstrap = this._loadBootstrapFiles();
+    const skills = this._getSkills();
     const projectInfo = this._getProjectInfo();
 
-    return [identity, bootstrap, projectInfo].filter(Boolean).join('\n\n---\n\n');
+    return [identity, bootstrap, skills, projectInfo].filter(Boolean).join('\n\n---\n\n');
   }
 
   /** 核心身份与工作流约定 */
@@ -103,11 +116,7 @@ pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志
 
 # 工具限制
 
-- max_iterations=30（防死循环）
-- 单次工具输出 > 30000 字符会被截断（保留头尾，报错在尾部）
-- shell 命令默认超时 30 秒
-- 改错了可以用 restore_file 或让用户执行 /undo 退回
-- 写文件前会自动存 checkpoint，可随时还原`;
+${describeLimits()}`;
   }
 
   /**
@@ -159,6 +168,42 @@ pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志
 > Cursor / Cline 都没这个功能——这是 Mini-Coder 的差异化能力。
 
 ${parts.join('\n\n')}`;
+  }
+
+  /**
+   * 技能包段落
+   *
+   * ⭐ 渐进式加载（progressive disclosure）—— 这是省 token 的关键
+   *
+   *   两段式：
+   *     · always: true 的技能 → 正文【全量注入】（跨轮都生效的硬规矩）
+   *     · 其余技能           → 只放【一行索引】，正文不进 prompt
+   *
+   *   模型觉得需要哪条，会自己用 read_file 去读那个 SKILL.md。
+   *   这样 50 个技能也只占 50 行，而不是几万 token。
+   *
+   *   用户怎么用：
+   *     · 显式引用：在对话里打 $技能名，如「用 $zh-commit 帮我提交」
+   *     · 自动判断：模型看索引觉得相关，主动 read_file 加载
+   *
+   * 放在 bootstrap 之后、project info 之前：
+   *   项目规则（AGENTS.md）比技能更"上位"，排前面符合优先级直觉。
+   */
+  private _getSkills(): string {
+    let entries;
+    try {
+      entries = listAllSkills(this.workspaceRoot, this.extensionPath);
+    } catch {
+      // 技能是增量能力，发现失败绝不能影响主流程
+      return '';
+    }
+
+    if (entries.length === 0) return '';
+
+    const alwaysBlock = buildAlwaysSkillsBlock(entries);
+    const index = buildSkillsIndex(entries);
+
+    return [alwaysBlock, index].filter(Boolean).join('\n\n');
   }
 
   /** 当前工作区信息（让 agent 知道自己在哪个项目里） */

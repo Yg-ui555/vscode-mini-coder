@@ -40,6 +40,7 @@
 
 import * as vscode from 'vscode';
 import { ToolMeta } from './meta';
+import { FileDiff, renderUnifiedDiff, renderCompactPreview, summarizeDiffs } from '../../util/diff';
 
 interface VscodeLike {
   window: {
@@ -47,6 +48,11 @@ interface VscodeLike {
       message: string,
       ...items: any[]
     ) => Thenable<string | undefined>;
+    /** 打开 diff 预览文档用（测试环境可能没有 → 全部可选链保护） */
+    showTextDocument?: (doc: any, options?: any) => Thenable<any>;
+  };
+  workspace?: {
+    openTextDocument?: (options: any) => Thenable<any>;
   };
 }
 
@@ -205,8 +211,15 @@ export async function approveToolCall(req: {
    * 但只读档的语义是"一根手指都不许动"，两者不能用同一个布尔判断。
    */
   lowRisk?: boolean;
+  /**
+   * 改动预览（apply_patch / write_file 传入）
+   *
+   * 传了就走"显示 diff"的交互；不传就是原来的纯文字确认。
+   * 详见下方 write 分支的注释。
+   */
+  preview?: FileDiff[];
 }): Promise<ApprovalDecision> {
-  const { toolName, meta, summary, command, lowRisk } = req;
+  const { toolName, meta, summary, command, lowRisk, preview } = req;
 
   // 逃生舱优先：非交互环境一律放行
   if (nonInteractive) return OK();
@@ -251,9 +264,72 @@ export async function approveToolCall(req: {
   if (sessionApprovals.has(toolName)) return { approved: true, prompted: true };
 
   const isFirstAsk = !askedTools.has(toolName);
+  const writeButtons = [
+    '允许一次',
+    ...(isFirstAsk ? ['本次会话都允许'] : []),
+    '拒绝',
+  ];
+
+  // ── ⭐ 有 diff 预览时的交互（2026-10-22 新增）──
+  //
+  //   为什么需要：
+  //     用户点"允许"之前只能看到"将修改 3 个文件"，看不到具体改哪行。
+  //     本项目已经有【事后回滚】（checkpoint + /undo），
+  //     但事后补救不能替代事前知情 —— 用户还是得先盲目地点一次允许。
+  //
+  //   为什么小改动内嵌、大改动走按钮：
+  //     VS Code 的通知弹窗（showWarningMessage）只渲染两三行，
+  //     把 50 行 diff 塞进去会撑爆排版，反而什么都看不清。
+  //     所以：小改动直接显示（省一次点击），大改动只给统计 + 按钮。
+  if (preview && preview.length > 0) {
+    const stat = summarizeDiffs(preview);
+    const compact = renderCompactPreview(preview, INLINE_DIFF_MAX_LINES);
+    const changedLines = preview.reduce((n, d) => n + d.added + d.removed, 0);
+
+    const inlineMessage =
+      changedLines <= INLINE_DIFF_MAX_LINES
+        ? `Mini-Coder 准备修改你的文件\n\n${summary}\n\n` +
+            `📋 ${stat}\n\n${compact}\n\n`
+        : `Mini-Coder 准备修改你的文件\n\n${summary}\n\n` +
+            `📋 ${stat}（改动较多，完整 diff 点"查看改动"）\n\n`;
+
+    let action = await vscode.window.showWarningMessage(inlineMessage, ...writeButtons, '查看改动');
+
+    // 用户想看完整 diff → 打开只读文档 → 看完再问一次
+    if (action === '查看改动') {
+      const opened = await showDiffDocument(preview);
+      if (opened) {
+        action = await vscode.window.showWarningMessage(
+          `已打开改动预览文档。确认要写入吗？\n\n📋 ${stat}`,
+          '允许一次',
+          ...(isFirstAsk ? ['本次会话都允许'] : []),
+          '拒绝',
+        );
+      } else {
+        // 打不开预览文档也不能卡住流程，退回原来的三选项
+        action = await vscode.window.showWarningMessage(
+          `无法打开改动预览（当前环境不支持）。确认要写入吗？\n\n📋 ${stat}`,
+          '允许一次',
+          ...(isFirstAsk ? ['本次会话都允许'] : []),
+          '拒绝',
+        );
+      }
+    }
+
+    if (action === '本次会话都允许') {
+      sessionApprovals.add(toolName);
+      return { approved: true, prompted: true };
+    }
+    if (action === '允许一次') {
+      askedTools.add(toolName);
+      return { approved: true, prompted: true };
+    }
+    return { ...denyBecause(current, toolName), prompted: true };
+  }
+
   const action = await vscode.window.showWarningMessage(
     `Mini-Coder 准备修改你的文件\n\n${summary}`,
-    ...(isFirstAsk ? ['允许一次', '本次会话都允许', '拒绝'] : ['允许一次', '拒绝']),
+    ...writeButtons,
   );
 
   if (action === '本次会话都允许') {
@@ -266,6 +342,42 @@ export async function approveToolCall(req: {
   }
 
   return { ...denyBecause(current, toolName), prompted: true };
+}
+
+/**
+ * 弹窗里内嵌显示的 diff 行数上限
+ *
+ * 超过这个数就只给统计 + "查看改动"按钮。
+ * VS Code 通知弹窗渲染不了太多内容，硬塞只会糊成一团。
+ */
+const INLINE_DIFF_MAX_LINES = 15;
+
+/**
+ * 在编辑器里打开 diff 预览（只读，不进文件系统）
+ *
+ * 用 untitled 文档 + `diff` 语言：VS Code 会自动渲染成红绿对比视图，
+ * 这比自己画一套 diff 好看得多，也不用引任何依赖。
+ *
+ * ⚠️ 打不开绝不能阻断审批：预览是增强，不是功能。
+ *   测试环境（stub）里 openTextDocument 会 reject，这里必须兜住。
+ */
+async function showDiffDocument(preview: FileDiff[]): Promise<boolean> {
+  const vscode = safeVscode();
+  if (!vscode?.workspace?.openTextDocument || !vscode.window.showTextDocument) return false;
+
+  try {
+    const doc = await vscode.workspace.openTextDocument({
+      content: renderUnifiedDiff(preview),
+      language: 'diff',
+    });
+    await vscode.window.showTextDocument(doc, {
+      preview: true,
+      preserveFocus: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

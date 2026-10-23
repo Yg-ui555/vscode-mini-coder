@@ -59,23 +59,40 @@
 ```
 src/
 ├── extension.ts           ← 入口 + 激活 + 命令注册
-├── config.ts              ← BYOK 配置（SecretStorage + .env）
+├── config.ts              ← BYOK 配置（SecretStorage + 设置 + .env）
 ├── agent/
 │   ├── provider.ts        ← OpenAI 兼容流式 Provider
-│   ├── loop.ts            ← ReAct 主循环（max_iterations=30）
-│   ├── context.ts         ← System prompt 拼装
+│   ├── loop.ts            ← ReAct 主循环（maxIterations 来自 limits.ts）
+│   ├── limits.ts          ← 硬限制单一真相源 ⭐ 2026-10-22
+│   ├── context.ts         ← System prompt 拼装（含技能索引）
+│   ├── toolOutputStore.ts ← 大输出外置 ⭐ 2026-10-22
 │   └── tools/
 │       ├── base.ts         ← Tool 接口
 │       ├── registry.ts     ← ToolRegistry
-│       ├── readFile.ts     ← 读文件（30k 截断）
-│       ├── writeFile.ts    ← 写文件
-│       ├── applyPatch.ts  ← 杀手特性：结构化编辑 + rollback
-│       └── runShell.ts     ← 跨平台 shell（Windows 兼容）
+│       ├── factory.ts      ← 唯一一份工具定义
+│       ├── approval.ts     ← 权限决策唯一入口 + diff 预览 ⭐
+│       ├── paths.ts        ← 工作区边界
+│       └── …9 个工具
+├── session/
+│   ├── store.ts           ← JSONL 会话存储（含历史自愈调用）
+│   └── resume.ts          ← 中断续跑快照 ⭐ 2026-10-22
+├── skills/                ← 技能包（渐进式加载）⭐ 2026-10-22
+│   ├── types.ts            ← frontmatter 解析（零依赖）
+│   ├── loader.ts           ← 发现 / 门控 / 索引 / $触发
+│   └── index.ts            ← builtin + workspace 两级合并
+├── util/
+│   ├── tokens.ts           ← 中英文分别估算
+│   ├── cost.ts             ← 价目表（大小写不敏感匹配）
+│   ├── diff.ts             ← unified diff ⭐ 2026-10-22
+│   ├── notesStore.ts
+│   └── historyRepair.ts    ← 对话历史自愈 ⭐ 2026-10-22
 └── features/
     ├── autoTest.ts        ← 特色 1：自动测试
     ├── zhCommit.ts        ← 特色 2：中文 commit
-    └── notes.ts            ← 特色 3：错题本
+    └── notes.ts           ← 特色 3：错题本
 ```
+
+（内置技能在扩展根目录的 `skills/`，用户技能在 `<项目>/skills/`。）
 
 ## 六、BYOK 模式（重要）
 
@@ -151,17 +168,97 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | 项 | 状态 |
 |---|---|
 | 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
-| 测试 | **171 个用例 / 16 个文件全绿** |
-| pass rate | **100%（14/14，DeepSeek）** —— ⚠️ 评测集已饱和，详见下方 |
+| 测试 | **340 个用例 / 23 个文件全绿** |
+| pass rate | **94%（17/18，DeepSeek，2026-10-21 第二轮）** |
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
 | 会话持久化 | ✅ JSONL 落盘，关掉 VS Code 再打开对话还在 |
+| **历史自愈** | ✅ 2026-10-22，孤儿 tool_call / 孤立 tool 消息自动修复 |
+| **中断续跑** | ✅ 2026-10-22，旁路 checkpoint 快照，恢复时绝不重跑已执行的工具 |
+| **大输出外置** | ✅ 2026-10-22，超 8000 字符落盘，回灌头尾预览 + 路径 |
+| **技能包** | ✅ 2026-10-22，渐进式加载（索引常驻 / 正文按需读）+ `$技能名` 触发 |
+| **改动预览** | ✅ 2026-10-22，审批弹窗显示 diff，大改动可开只读 diff 文档 |
 | Token 计数 | ✅ 中英文分别估算，按上下文窗口 70% 触发压缩 |
+| 成本统计 | ✅ token + 金额 + 最贵 3 题 + 每通过一题成本 |
 | autoTest | ✅ **2026-10-21 重写**：源码变更也会触发、退出码判定、防抖、最多修 3 轮 |
 | zhCommit | ✅ 已修 untracked 文件漏读 + `type` 命令不可靠 |
 | notes | ✅ **2026-10-21 重写**：`record_note` 工具写富条目（原因/踩坑/测试），索引页 + 去重 |
-| 缺失能力 | diff 预览确认、MCP、Skills、中断续跑、成本预算约束（评测还只统计不限制） |
-| 已知硬伤 | autocompact 已改为「保住 tool 消息 + 压缩后补 continuation」 |
+| 缺失能力 | MCP、**重复工具调用检测**（评测显示 7/18 题在打转，是当前最大的成本来源） |
+| 已知边界 | autocompact 后用户看不到被压掉的历史（需 Webview 配合渲染，见下文） |
+
+---
+
+## 🆕 2026-10-22 加固轮：三个 400 级 Bug + 四个新能力
+
+这一轮的起因是评测报告里的一行数字，和三个会直接让用户撞墙的结构缺陷。
+
+### 修掉的 Bug
+
+| Bug | 触发条件 | 后果 |
+|---|---|---|
+| ⭐ 中断留下孤儿 tool_call | AI 一次调多个工具时点「停止」 | 会话结构非法 → 重开对话**永久 400**，只能删文件 |
+| ⭐⭐ autocompact 制造孤儿 | **任何长对话**（阈值 = 上下文 70%） | 保留下来的 tool 结果失去 assistant 声明，同样 400 |
+| `anthropic` 是假选项 | 用户在设置界面选它 | 静默回落到 DeepSeek，账单出在别家 |
+| MiniMax 成本高估 5 倍 | 用 MiniMax 跑评测 | 价目表 key 小写 ≠ 实际模型名，永远走保守默认值 |
+| 告知 30 轮 / 实给 20 轮 | 每次对话 | 模型按错误预算做规划，容易被硬截断 |
+
+**为什么 autocompact 那个最严重**：中断要用户主动点停止才触发，
+而 autocompact 在任何跑到 70% 上下文的对话里**必然触发**。
+用户聊得越久、越信任这个工具，就越容易撞上。
+
+**修法是两层防御，缺一不可**：
+
+1. **治本** —— `loop.ts` 中断时补齐**剩余全部** tool_call；
+   `maybeCompact` 把 `assistant + 它后面所有 tool 消息` 当**一个整体**保护，绝不拆散
+2. **治旧** —— `util/historyRepair.ts` 在读会话时自愈，救回磁盘上已存在的坏记录
+
+> ⚠️ 这里踩过一个坑，值得单独记下来：
+> **光把孤立 tool 消息的内容换成说明是没用的。**
+> 协议校验的是 `tool_call_id` 有没有对应的 `tool_call` 声明，跟内容写成什么毫无关系。
+> 唯一既能保留信息、又协议合法的做法，是**补一条合成的 assistant 声明**把它们兜住。
+
+### 新增能力
+
+| 能力 | 借鉴自 | 落地位置 |
+|---|---|---|
+| 大输出外置 | nanobot `context_governance.py` | `agent/toolOutputStore.ts`，阈值 8000 字符，保头保尾预览 |
+| 技能包 | goose `skill_slash_command.rs` + nanobot `skills.py` | `src/skills/`，渐进式加载，`$技能名` 触发，3 个内置技能 |
+| 改动预览 | **无**（两个参考项目都没做） | `util/diff.ts` + 审批弹窗，大改动开只读 diff 文档 |
+| 中断续跑 | nanobot `session/recovery.py` | `session/resume.ts`，旁路快照，显式告知「没执行完」 |
+
+### 两个贯穿所有修复的设计原则
+
+**① 绝不让模型重复执行已有副作用的操作**
+
+如果某个工具可能已经产生外部副作用（git push 发出去了、文件被删了），
+而我们悄悄把它的调用记录删掉，模型看到「没这回事」，下一步很可能**再做一遍** ——
+问题就从「做了一次」变成「做了两次」，而用户毫无察觉。
+
+所以正确做法永远是**显式告知**：「这一步没执行完」，由模型自己决定要不要重试。
+这条原则同时用在 `historyRepair` / `loop 中断` / `resume 物化` 三处，
+三处必须一致，否则会出现「一边补说明一边又静默删掉」的自相矛盾。
+
+**② 渐进式加载 —— 能外置的就别占着，能按需加载的就别常驻**
+
+评测显示输入 token 是输出的 20 倍，根源是 ReAct 循环每轮重发全量上下文。
+大输出外置和技能包索引是同一个原理的两面：
+它们共同把「每轮都要重复发送」的大块内容从上下文里挤了出去。
+
+> ⚠️ 验证收益有个坑：**不能拿评测数字当证据**。
+> 评测沙箱的 token 来自 provider 上报的真实 usage，且沙箱里必须关闭外置
+> （`setToolOutputEnabled(false)`，理由与 checkpoint 完全相同）。
+> 真实收益要在 VS Code 里看面板的上下文用量条。
+
+### 下一步（按优先级）
+
+1. **重复工具调用检测** —— 评测显示 18 题里 7 题同一工具重复调用 ≥5 次，
+   `13-hard-perf-optimize` 打转 10 次、烧掉 ¥0.36。这是当前最大的成本来源，
+   而且 goose / nanobot **都没做**，是可以做出差异化的点
+2. 重跑一次完整评测，拿这轮优化前后的 token 对比数据
+3. 成本预算硬限制（现在只统计不限制）
+4. MCP
+
+---
 
 ### ⭐ 评测集饱和 → 已破（2026-10-21 第二轮）
 

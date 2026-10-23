@@ -97,11 +97,10 @@
             "minimax",
             "deepseek",
             "openai",
-            "anthropic",
             "ollama"
           ],
           "default": "deepseek",
-          "markdownDescription": "选择 LLM Provider。**注意**：本项优先级低于项目根目录的 `.env`，高于命令面板里保存的选择。"
+          "markdownDescription": "选择 LLM Provider。**注意**：本项优先级低于项目根目录的 `.env`，高于命令面板里保存的选择。\n\n> 2026-10-22 移除了 `anthropic`：之前它列在这里但代码里没有实现，选了会被静默丢弃并回落到 DeepSeek——属于\"配置项骗用户\"。Anthropic 的接口协议不是 OpenAI 兼容格式（`/v1/messages` + `tool_use`），真要支持需要单独写一个 Provider。\n\n> 改这份 enum 时请同步改 `src/config.ts` 的 `PROVIDER_CONFIGS`，两边不一致就会出现同样的静默失效。"
         },
         "mini-coder.model": {
           "type": "string",

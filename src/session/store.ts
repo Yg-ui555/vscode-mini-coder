@@ -39,6 +39,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { repairMessages } from '../util/historyRepair';
+import { warn } from '../logger';
 
 export interface SessionMeta {
   _type: 'metadata';
@@ -245,7 +247,36 @@ export class SessionStore {
       }
     }
 
-    return { meta, messages };
+    // ⭐⭐ 历史自愈（2026-10-22）
+    //
+    //   为什么这里必须自愈，而不是只在 loop 里"不产生坏数据"：
+    //     · 用户磁盘上【已经存在】的坏会话文件不会自己变好
+    //     · 修复前的版本，只要用户在多工具调用时点过停止，就留下了 400 的地雷
+    //     · 不自愈的话，用户只能手动删 .jsonl，而且完全不知道问题在哪
+    //
+    //   自愈规则见 util/historyRepair.ts。要点：
+    //     · 孤儿 tool_call（assistant 声明了但没响应）→ 补一条明确说明
+    //     · 孤立 tool 消息（找不到对应声明）→ 替换成说明性内容
+    //   两条规则都【不删信息】，因为删掉会让模型以为"没发生过"从而重做一遍副作用。
+    //
+    //   失败绝对不能阻断：会话坏了顶多丢一次对话，
+    //   但如果这里抛异常，用户连"打开面板"都做不到，那就从"对话丢一次"
+    //   升级成"插件不可用"了。
+    let messagesWithRepair = messages;
+    try {
+      const repair = repairMessages(messages);
+      if (repair.changed) {
+        warn(
+          `会话 ${sessionId} 历史结构异常，已自动修复：${repair.summary}。` +
+            `（说明这条会话是在历史自愈上线前写的，或上一次任务被强制中断）`,
+        );
+        messagesWithRepair = repair.messages;
+      }
+    } catch (e: any) {
+      warn(`会话 ${sessionId} 历史修复失败，按原样加载：${e?.message || e}`);
+    }
+
+    return { meta, messages: messagesWithRepair };
   }
 
   loadMeta(sessionId: string): SessionMeta | null {

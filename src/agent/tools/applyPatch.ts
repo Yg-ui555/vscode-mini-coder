@@ -25,6 +25,7 @@ import { resolveInWorkspace, toWorkspaceRelative } from './paths';
 import { approveToolCall } from './approval';
 import { writeMeta } from './meta';
 import { snapshotOperation, discardCheckpoint } from '../checkpoint/store';
+import { diffFiles } from '../../util/diff';
 
 interface Edit {
   path?: string;
@@ -152,12 +153,30 @@ export class ApplyPatchTool implements Tool {
     );
 
     // ⭐ 权限决策：只读档会直接拒，askWrites/askAll 会弹窗确认（dry_run 不打扰）
+    //
+    //   2026-10-22 新增 diff 预览：
+    //   原来弹窗只说"将修改 3 个文件"，用户不知道具体改哪行，
+    //   只能盲点允许。现在把每个文件的前后差异算出来给用户看。
+    //
+    //   为什么在这里算而不是写盘后算：
+    //     writes 里已经是"最终要写的内容"（多个 edit 已经合并过了），
+    //     backups 里是"磁盘上的原内容"，两者一比就是精确 diff。
+    //     算 diff 不需要读盘（内容都在内存里），也没有性能问题。
+    const previewDiffs = diffFiles(
+      [...writes.entries()].map(([filePath, content]) => ({
+        absPath: filePath,
+        before: backups.get(filePath) ?? null,
+        after: content,
+      })),
+    );
+
     const decision = await approveToolCall({
       toolName: this.name,
       meta: this.meta,
       summary: `将修改 ${writes.size} 个文件：\n${[...writes.keys()]
         .map((p) => `• ${toWorkspaceRelative(p)}`)
         .join('\n')}`,
+      preview: previewDiffs,
     });
     if (!decision.approved) {
       // 被拒 —— 刚存的快照没有意义，清掉避免污染 undo 历史

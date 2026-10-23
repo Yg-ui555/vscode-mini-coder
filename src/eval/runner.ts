@@ -32,6 +32,7 @@ import { setWorkspaceRoot } from '../agent/tools/paths';
 import { setNonInteractive } from '../agent/tools/approval';
 import { setEvalWorkspace } from './shim';
 import { setCheckpointEnabled } from '../agent/checkpoint/store';
+import { setToolOutputEnabled } from '../agent/toolOutputStore';
 import { addUsage, emptyUsage, estimateCost, CostBreakdown } from '../util/cost';
 
 import {
@@ -185,6 +186,16 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     //    而 eval/types.ts 的 listFiles() 不忽略任何目录，会把这些存档
     //    算进"agent 改了哪些文件"，污染 L4 回归检测的证据链。
     setCheckpointEnabled(false);
+    // ⭐ 同理关掉大输出外置（理由完全一致，它也写在 .mini-coder/ 下）
+    //
+    //   补充一条更本质的理由：评测的成本统计来自 provider 上报的
+    //   真实 usage，不是本地估算。沙箱里外置省的是"估算出来的 token"，
+    //   对真实账单毫无影响 —— 反而让 agent 多绕一圈去 read_file，
+    //   把评测搞复杂、结果搞失真。
+    //
+    //   想验证外置的真实收益，要在真实 VS Code 里看面板上的 token 用量，
+    //   不要拿评测的数字当证据。
+    setToolOutputEnabled(false);
 
     const check = loadCheck(task);
 
@@ -329,5 +340,6 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     setWorkspaceRoot(undefined);
     setEvalWorkspace(undefined);
     setCheckpointEnabled(true);
+    setToolOutputEnabled(true);
   }
 }

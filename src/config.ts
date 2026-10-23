@@ -74,7 +74,20 @@ export const PROVIDER_CONFIGS: Record<ProviderName, ProviderConfig> = {
   },
 };
 
-const VALID_PROVIDERS: ProviderName[] = ['minimax', 'deepseek', 'openai', 'ollama'];
+/**
+ * 合法 provider 名单 —— 从 PROVIDER_CONFIGS 的 key 推导，不手写第二份
+ *
+ * ⚠️ 2026-10-22 修复的"配置项骗用户"：
+ *   之前这里是一份手写的 `['minimax','deepseek','openai','ollama']`，
+ *   而 package.json 的 enum 写了 5 个（含 anthropic）。
+ *   用户在设置界面选了 anthropic → 这里判定不合法 → 静默丢弃 →
+ *   回落到默认值 deepseek。用户以为在用 Claude，账单却出在 DeepSeek 上。
+ *
+ *   两份名单只要有一处不同步，就会出现这个 bug，而且没有任何报错。
+ *   所以现在只保留 PROVIDER_CONFIGS 这一个真相源：
+ *   以后加 provider 只需要改上面那张表，这里自动跟着变。
+ */
+const VALID_PROVIDERS = Object.keys(PROVIDER_CONFIGS) as ProviderName[];
 
 /** .env 里可能出现的 key 名（任选其一） */
 const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY'];

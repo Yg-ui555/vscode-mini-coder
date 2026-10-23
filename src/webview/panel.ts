@@ -17,10 +17,26 @@ import { AgentLoop } from '../agent/loop';
 import { ToolRegistry } from '../agent/tools/registry';
 import { createDefaultRegistry } from '../agent/tools/factory';
 import { ContextBuilder } from '../agent/context';
+import { MAX_ITERATIONS } from '../agent/limits';
+import {
+  listAllSkills,
+  resolveExplicitSkills,
+  buildExplicitSkillsBlock,
+  logAllSkills,
+} from '../skills';
 import { runSlashCommand, listSlashCommands } from '../slashCommands/registry';
 import { toUserView } from '../errors';
 import { info, warn, error as logError } from '../logger';
 import { SessionStore } from '../session/store';
+import {
+  saveCheckpoint,
+  loadCheckpoint,
+  clearCheckpoint,
+  materializeResume,
+  hasPendingWork,
+  describeCheckpoint,
+  makeBatchSignature,
+} from '../session/resume';
 import { setCheckpointSession } from '../agent/checkpoint/store';
 import { formatUsage } from '../util/tokens';
 
@@ -56,6 +72,15 @@ export class ChatPanel {
     // checkpoint 跟着会话走 —— 这样 VS Code 重开后 /undo 仍然有效
     setCheckpointSession(this._sessionStore.currentSessionId);
 
+    // ⭐ 启动时扫一次技能，记进日志。
+    //   排障时第一件事就是看这行：技能到底有没有被发现、
+    //   是不是因为缺 CLI / 缺环境变量被判为不可用。
+    try {
+      logAllSkills(wsPath || null, extensionUri.fsPath);
+    } catch {
+      /* 技能扫描失败不影响面板打开 */
+    }
+
     // 恢复上次会话（如果有内容）
     const loaded = this._sessionStore.load();
     if (loaded.messages.length > 0) {
@@ -64,6 +89,7 @@ export class ChatPanel {
         `已恢复上次会话 ${loaded.meta?.id}：${loaded.messages.length} 条消息` +
           `（${loaded.meta?.updatedAt ? new Date(loaded.meta.updatedAt).toLocaleString('zh-CN') : '未知时间'}）`,
       );
+      this._offerResume();
     }
 
     this._panel.webview.html = this._getHtml();
@@ -215,16 +241,32 @@ export class ChatPanel {
     const registry = createDefaultRegistry();
     info(`已加载 ${registry.names.length} 个工具：${registry.names.join(', ')}`);
 
-    const loop = new AgentLoop(provider, registry, 20, configured.config.defaultModel);
+    // ⭐ 迭代上限从单一真相源取，不再硬编码
+    //   修复前这里写死 20，而 system prompt 告诉 LLM 的是 30，
+    //   模型的规划预算和真实预算对不上（见 agent/limits.ts 的说明）。
+    const loop = new AgentLoop(provider, registry, MAX_ITERATIONS, configured.config.defaultModel);
 
     // 3. 拼 messages
     if (this._messages.length === 0) {
-      // 取当前 VS Code 工作区根目录，让 ContextBuilder 自动加载 AGENTS.md
+      // 取当前 VS Code 工作区根目录，让 ContextBuilder 自动加载 AGENTS.md 和 skills/
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
-      const systemPrompt = new ContextBuilder(workspaceRoot).buildSystemPrompt();
+      // ⭐ 同时传 extensionPath，让它能加载内置技能
+      const systemPrompt = new ContextBuilder(
+        workspaceRoot,
+        this._extensionUri.fsPath,
+      ).buildSystemPrompt();
       this._messages.push({ role: 'system', content: systemPrompt });
+      info(
+        `system prompt 已构建（工作区: ${workspaceRoot ?? '无'}，内置技能目录: ${this._extensionUri.fsPath}/skills）`,
+      );
     }
-    this._messages.push({ role: 'user', content: userInput });
+
+    // ⭐ $技能名 显式引用
+    //   用户在输入里打 "$zh-commit" 时，把该技能的正文注入【这一轮】。
+    //   挂在 user 消息上而不是 system prompt，是因为 system prompt 跨轮不变
+    //   才能命中 provider 的 prompt cache —— 这一轮用完就沉进历史里。
+    const promptText = this._composeUserMessage(userInput);
+    this._messages.push({ role: 'user', content: promptText });
 
     // ⭐ 先把"用户问了什么"落盘，再去调 LLM
     //   这样即使中途崩了 / 被中断，重开后还能看到用户提过什么需求，
@@ -248,6 +290,24 @@ export class ChatPanel {
         onCompact: (msg) => this._postMessage({ type: 'text', content: `\n${msg}\n` }),
         onUsage: (used, window) =>
           this._postMessage({ type: 'usage', content: formatUsage(used, window) }),
+
+        // ⭐ 中断续跑：把工具执行进度存成快照
+        //   语义（见 agent/loop.ts 的 onToolProgress 注释）：
+        //     finished: true  → 整个 run 结束，删掉快照（说明没有半途而废的任务）
+        //     finished: false → 还在跑 / 被中断，存快照（下次可以续）
+        onToolProgress: (info2) => {
+          if (info2.finished) {
+            clearCheckpoint(this._sessionsDir(), this._sessionStore.currentSessionId);
+            return;
+          }
+          saveCheckpoint(this._sessionsDir(), {
+            sessionId: this._sessionStore.currentSessionId,
+            iteration: info2.iteration,
+            batchSignature: makeBatchSignature(info2.done),
+            done: info2.done,
+            pending: info2.pending,
+          });
+        },
       });
       this._postMessage({ type: 'final' });
       info('agent.run 完成');
@@ -271,6 +331,97 @@ export class ChatPanel {
       //   中断的场景尤其重要 —— 用户点"停止"然后关掉面板是高频操作。
       await this._persistSession(configured);
     }
+  }
+
+  /**
+   * 组合要发给 LLM 的 user 消息
+   *
+   * 处理 $技能名 引用：用户打 "$zh-commit 帮我提交" 时，
+   * 把 zh-commit 技能的正文追加到这一轮消息里。
+   *
+   * 为什么追加在 user 消息而不是 system prompt：
+   *   system prompt 跨轮不变 → provider 端能命中 prompt cache（省钱）
+   *   追加到 user 消息 → 只在这一轮生效，不污染长期前缀
+   *   nanobot 的 context.py 也是这么区分的。
+   */
+  private _composeUserMessage(userInput: string): string {
+    try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+      const entries = listAllSkills(workspaceRoot, this._extensionUri.fsPath);
+      if (entries.length === 0) return userInput;
+
+      const names = resolveExplicitSkills(userInput, entries);
+      if (names.length === 0) return userInput;
+
+      const block = buildExplicitSkillsBlock(names, entries);
+      if (!block) return userInput;
+
+      info(`[skills] 本轮显式启用技能：${names.join(', ')}`);
+      return `${userInput}\n\n${block}`;
+    } catch (e: any) {
+      // 技能是增量功能，解析失败绝不能挡住用户发消息
+      warn(`[skills] 解析 $技能引用失败，按原文发送：${e?.message || e}`);
+      return userInput;
+    }
+  }
+
+  /** 会话目录（续跑快照跟会话历史存在同一个目录下） */
+  private _sessionsDir(): string {
+    return this._extensionContext.storageUri?.fsPath ?? '';
+  }
+
+  /**
+   * ⭐ 中断续跑：检测到上次有半途而废的任务时，问用户要不要接着跑
+   *
+   * 为什么是【问】而不是自动恢复：
+   *   · 上次是用户主动点了"停止"的 —— 那可能是因为它跑偏了，
+   *     用户不想让它继续。自动恢复等于不听用户的话。
+   *   · 上次可能是编辑器崩了 —— 用户的上下文可能已经变了。
+   *
+   * 所以主动告知、让用户决定，是唯一稳妥的做法。
+   */
+  private _offerResume(): void {
+    const cp = loadCheckpoint(this._sessionsDir(), this._sessionStore.currentSessionId);
+    if (!hasPendingWork(cp)) return;
+
+    const c = cp!;
+    info(`[续跑] 检测到未完成任务：${describeCheckpoint(c)}`);
+
+    vscode.window
+      .showWarningMessage(`Mini-Coder 上次任务没跑完：${describeCheckpoint(c)}`, '继续上次任务', '放弃')
+      .then((action) => {
+        if (action !== '继续上次任务') {
+          clearCheckpoint(this._sessionsDir(), this._sessionStore.currentSessionId);
+          info('[续跑] 用户选择放弃，已清除快照');
+          return;
+        }
+        this._doResume(c);
+      });
+  }
+
+  /** 真正执行恢复：把快照物化成消息，追加到对话末尾 */
+  private _doResume(cp: ReturnType<typeof loadCheckpoint>): void {
+    if (!cp) return;
+
+    const extra = materializeResume(cp, this._messages);
+    if (extra.length === 0) {
+      // 快照里的工具其实都跑完了（竞态），清掉即可
+      clearCheckpoint(this._sessionsDir(), this._sessionStore.currentSessionId);
+      info('[续跑] 快照里的工具其实都已完成，无需恢复');
+      return;
+    }
+
+    this._messages.push(...extra);
+    info(`[续跑] 已恢复 ${extra.length} 条消息，等待用户指示下一步`);
+    clearCheckpoint(this._sessionsDir(), this._sessionStore.currentSessionId);
+
+    this._postMessage({ type: 'history', messages: this._messagesToWebview() });
+    this._postMessage({
+      type: 'status',
+      content:
+        `↩️ 已恢复上次任务（${cp.pending.length} 个未完成的工具调用）。` +
+        `你可以直接说"继续"，Mini-Coder 会先核实当前文件状态再往下做。`,
+    });
   }
 
   /**

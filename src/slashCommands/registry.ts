@@ -24,6 +24,7 @@ import { generateZhCommitStandalone } from '../features/zhCommit';
 import { readTodayNotes } from '../features/notes';
 import { runDoctor } from '../commands/doctor';
 import { restoreLatest, listCheckpoints } from '../agent/checkpoint/store';
+import { listAllSkills } from '../skills';
 import { info } from '../logger';
 
 export interface SlashContext {
@@ -112,6 +113,69 @@ const COMMANDS: SlashCommand[] = [
 完成后报告：时间复杂度、空间复杂度、关键思路。`;
       ctx.postMessage({ type: 'user_input', content: taskPrompt });
       return { message: `🧮 已派发给 agent 跑 LeetCode: ${query}`, success: true };
+    },
+  },
+  {
+    name: 'skills',
+    description: '列出本项目的技能包，以及怎么用 $技能名 调用',
+    handler: async (ctx) => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+      const entries = listAllSkills(workspaceRoot, ctx.extensionPath);
+
+      if (entries.length === 0) {
+        return {
+          message:
+            '📦 未发现任何技能包。\n\n' +
+            '技能是一个 `skills/<技能名>/SKILL.md` 文件，用来教 AI 做某件事。\n' +
+            '格式如下：\n\n' +
+            '```markdown\n' +
+            '---\n' +
+            'name: my-skill\n' +
+            'description: 一句话说明它是干什么的（这行会进索引，模型靠它判断要不要用）\n' +
+            'always: false\n' +
+            '---\n\n' +
+            '# 正文\n' +
+            '详细的步骤、命令、注意事项…\n' +
+            '```\n\n' +
+            '放在你的项目根目录下的 `skills/` 里即可。\n' +
+            '· `always: true` → 正文每轮都注入（适合项目硬规矩）\n' +
+            '· 默认 false → 只放一行索引，模型需要时自己读正文（省 token）',
+          success: true,
+        };
+      }
+
+      const usable = entries.filter((e) => e.available);
+      const blocked = entries.filter((e) => !e.available);
+
+      const lines: string[] = [];
+      lines.push(`📦 共 ${entries.length} 个技能（${usable.length} 个可用）\n`);
+
+      for (const e of usable) {
+        const tags: string[] = [];
+        if (e.source.startsWith('builtin')) tags.push('内置');
+        if (e.source.startsWith('workspace')) tags.push('本项目');
+        if (e.always) tags.push('always');
+
+        lines.push(
+          `**${e.name}**${tags.length ? `  [${tags.join(' / ')}]` : ''}\n` +
+            `  ${e.description}\n` +
+            `  \`${e.relPath}\``,
+        );
+      }
+
+      if (blocked.length > 0) {
+        lines.push('');
+        lines.push('⚠ 以下技能因缺少前置条件不可用：');
+        for (const e of blocked) {
+          lines.push(`  · ${e.name} —— 缺少 ${e.unavailableReason}`);
+        }
+      }
+
+      lines.push('');
+      lines.push('💡 显式启用：在对话里打 `$技能名`，例如「用 $debug-workflow 帮我查这个 bug」。');
+      lines.push('💡 也可以不指定 —— 模型看到索引后，觉得相关会自己读。');
+
+      return { message: lines.join('\n'), success: true };
     },
   },
   {
