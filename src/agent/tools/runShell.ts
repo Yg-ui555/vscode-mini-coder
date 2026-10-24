@@ -18,6 +18,7 @@ import { exec, spawn } from 'child_process';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, getDefaultCwd } from './paths';
+import { redactContent, redactionNotice, commandTouchesSensitiveFile } from './redact';
 import { approveToolCall, detectDangerousCommand } from './approval';
 import { execMeta } from './meta';
 
@@ -165,9 +166,20 @@ export class RunShellTool implements Tool {
         const combined = format(out, err, code);
         // ⭐ 按长度截断（保留头尾），超时标记作为附加信息
         const timeoutNote = truncated ? `\n[⚠ 超时 ${timeout}ms，已终止进程]\n` : '';
-        const final = headTail(combined, MAX_OUTPUT_CHARS, timeoutNote);
+        // ⭐ 敏感信息脱敏（2026-10-25）
+        //   `cat .env` / `type .env.local` 这类命令的输出里带着密钥，
+        //   一样会进上下文 —— 所以 shell 输出也要过一遍脱敏。
+        const redactedOut = redactContent(
+          combined,
+          '',
+          commandTouchesSensitiveFile(args.command),
+        );
+        const final = headTail(redactedOut.content, MAX_OUTPUT_CHARS, timeoutNote);
 
-        resolve({ content: final, isError: truncated || undefined });
+        resolve({
+          content: final + redactionNotice(redactedOut.count),
+          isError: truncated || undefined,
+        });
       });
     });
   }

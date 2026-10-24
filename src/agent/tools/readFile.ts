@@ -17,6 +17,7 @@ import {
   checkRepeatRead,
   recordRepeatRead,
 } from './repeatGuard';
+import { redactContent, redactionNotice } from './redact';
 
 const MAX_OUTPUT_CHARS = 30000;
 
@@ -52,7 +53,19 @@ export class ReadFileTool implements Tool {
     }
 
     try {
-      let content = await fs.readFile(filePath, 'utf-8');
+      const rawContent = await fs.readFile(filePath, 'utf-8');
+
+      // ⭐ 敏感信息脱敏（2026-10-25）
+      //
+      //   真实踩坑：审一个真实项目时，agent 读了 .env，
+      //   把里面的真实 API Key 原样写进了体检报告 —— 报告是要传给人看的。
+      //
+      //   这里做【脱敏】而不是【拒绝读取】：
+      //   agent 经常需要知道「这个项目配了哪些环境变量」，
+      //   硬拦截会让这类任务做不了。变量名和结构留着，密钥值涂掉。
+      const redacted = redactContent(rawContent, filePath);
+      let content = redacted.content;
+      const notice = redactionNotice(redacted.count);
 
       // ⭐ 重复读取检测（2026-10-24）
       //
@@ -90,7 +103,7 @@ export class ReadFileTool implements Tool {
           contentHash,
           hashContent(result),
         );
-        return { content: result };
+        return { content: result + notice };
       }
 
       if (content.length > MAX_OUTPUT_CHARS) {
@@ -109,7 +122,7 @@ export class ReadFileTool implements Tool {
           contentHash,
           hashContent(result),
         );
-        return { content: result };
+        return { content: result + notice };
       }
 
       recordRepeatRead(
@@ -119,7 +132,7 @@ export class ReadFileTool implements Tool {
         contentHash,
         hashContent(content),
       );
-      return { content };
+      return { content: content + notice };
     } catch (e: any) {
       if (e.code === 'ENOENT') return { content: `文件不存在: ${args.path}`, isError: true };
       if (e.code === 'EISDIR') return { content: `${args.path} 是目录，请指定具体文件`, isError: true };

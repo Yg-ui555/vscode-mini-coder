@@ -36,6 +36,7 @@ import {
   makeDescendPredicate,
 } from './fileScan';
 import { getGuard } from './repeatGuard';
+import { redactContent } from './redact';
 
 /** 默认最多返回多少条匹配（超了截断，防止撑爆上下文） */
 const DEFAULT_MAX_RESULTS = 100;
@@ -186,10 +187,14 @@ export class GrepTool implements Tool {
 
         matchedFiles.add(f.rel);
         if (matches.length < limit) {
-          const lineText = lines[i].length > MAX_LINE_CHARS
-            ? lines[i].slice(0, MAX_LINE_CHARS) + '…'
-            : lines[i];
-          matches.push(`${f.rel}:${i + 1}:${lineText.trim()}`);
+          // ⭐ 敏感信息脱敏（2026-10-25）：grep 的输出同样会进上下文，
+          //   匹配到含密钥的行时不能让它原样出去。
+          const redacted = redactContent(lines[i], f.abs);
+          const trimmed = redacted.content.trim();
+          const lineText = trimmed.length > MAX_LINE_CHARS
+            ? trimmed.slice(0, MAX_LINE_CHARS) + '…'
+            : trimmed;
+          matches.push(`${f.rel}:${i + 1}:${lineText}`);
         }
         if (matches.length >= limit) break;
       }

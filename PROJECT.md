@@ -217,7 +217,7 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | 项 | 状态 |
 |---|---|
 | 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
-| 测试 | **461 个用例 / 29 个文件全绿**（2026-10-25，真实项目验证 + 3 个修复后） |
+| 测试 | **474 个用例 / 30 个文件全绿**（2026-10-25，真实项目验证 + 4 个修复后） |
 | pass rate | **100%（23/23，DeepSeek-chat，2026-10-24，Phase 2 改造后）** |
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
@@ -237,7 +237,8 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | zhCommit | ✅ 已修 untracked 文件漏读 + `type` 命令不可靠 |
 | notes | ✅ **2026-10-21 重写**：`record_note` 工具写富条目（原因/踩坑/测试），索引页 + 去重 |
 | **Hook 机制** | ✅ **2026-10-25**：4 个生命周期点（PreToolUse / PostToolUse / Stop / UserPromptSubmit），声明式配置，子进程执行；内置「测试没过不许收工」 |
-| **真实项目验证** | ✅ **2026-10-25**：`npm run audit -- <路径>` 用本插件审一个真实中型项目（27 轮 / 55 次工具调用 / 0 写入），当场暴露 3 个真 bug 并修复 |
+| **真实项目验证** | ✅ **2026-10-25**：`npm run audit -- <路径>` 用本插件审一个真实中型项目（20 轮 / 52 次工具调用 / 0 写入），当场暴露 4 个真 bug 并修复 |
+| **敏感信息脱敏** | ✅ **2026-10-25**：`read_file` / `grep` / `run_shell` 三个出口统一脱敏，`.env` 里的真实 API Key 不会进上下文（脱敏而非拦截，变量名照常可见） |
 | **Provider 降级熔断** | ✅ **2026-10-24**：三态熔断器（closed/open/halfOpen）+ 错误分类（400/404/422/abort 不降级） |
 | 缺失能力 | MCP、Todo 计划模式、子智能体 |
 | ⚠️ 评测集饱和 | **已破（2026-10-25）**：补了 5 道难题（18 → 23），并引入 **case 级目标修好率** + **工具消融实验** 两个更细的尺子。详见下一节 |
