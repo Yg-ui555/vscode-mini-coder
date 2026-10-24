@@ -10,9 +10,10 @@
 
 import * as vscode from 'vscode';
 import { ConfigManager } from './config';
-import { registerAutoTest } from './features/autoTest';
+import { registerAutoTest, runProjectTests } from './features/autoTest';
 import { registerZhCommit } from './features/zhCommit';
 import { registerNotes } from './features/notes';
+import { setBuiltinStopCheck } from './agent/hooks/manager';
 import { ChatPanel } from './webview/panel';
 import { registerDoctor } from './commands/doctor';
 import { registerSessionCommands } from './commands/sessions';
@@ -48,6 +49,41 @@ export async function activate(context: vscode.ExtensionContext) {
   registerAutoTest(context, configManager);
   registerZhCommit(context, configManager);
   registerNotes(context);
+
+  // ⭐⭐ 注册内置的 Stop hook —— "测试没过就不许收工"
+  //
+  //   这是 hook 机制的第一个消费者，也是它最能证明价值的地方：
+  //   agent 说"我做完了"的时候，先跑一遍项目测试，
+  //   没过就把它打回去继续干。
+  //
+  //   原来"自动跑测试"只有一条写死的链路（autoTest.ts 的文件监听），
+  //   那是"保存文件后"触发的；
+  //   现在多了"回合结束前"这一道 —— 覆盖的是 agent 自己收工的时刻。
+  //
+  //   ⚠️ 用【注册制】而不是直接 import：
+  //      autoTest.ts 依赖 AgentLoop，而 AgentLoop 依赖 hook manager ——
+  //      直接 import 就成了循环依赖。注册制把依赖方向掰成单向。
+  const stopAutoTest = vscode.workspace
+    .getConfiguration('mini-coder')
+    .get<boolean>('hooks.stopAutoTest', false);
+
+  if (stopAutoTest) {
+    setBuiltinStopCheck(async () => {
+      const r = await runProjectTests();
+      if (r.failed === 0) {
+        return { ok: true, message: '' };
+      }
+      return {
+        ok: false,
+        message:
+          `[内置 Stop hook] 项目测试没通过（${r.failed}/${r.total} 失败）。\n` +
+          `测试命令：${r.testCommand}\n\n` +
+          `${r.output.slice(0, 3000)}\n\n` +
+          `请修复失败的地方后重试。`,
+      };
+    });
+    info('内置 Stop hook 已启用：测试没过不许收工');
+  }
 
   // ⭐ 注册正式的环境自检命令（原来只有 /doctor，用户不知道存在）
   registerDoctor(context, configManager);

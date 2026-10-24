@@ -97,6 +97,10 @@ export async function runDoctor(
   //    让用户能看见"省 token 的机制在工作"，而不只是相信它
   checks.push(describeRepeatGuard());
 
+  // 9. ⭐⭐ Hook 机制状态（2026-10-25）
+  //    hook 是用户自己写的脚本，"我配了怎么没生效"是最常见的问题
+  checks.push(describeHooks());
+
   // 输出报告
   const lines = checks.map((c) => {
     const icon = c.ok ? '✅' : '❌';
@@ -193,6 +197,59 @@ function describeRepeatGuard(): { name: string; ok: boolean; detail: string } {
   } catch {
     return {
       name: '重复调用检测',
+      ok: false,
+      detail: '无法读取状态（模块加载失败）',
+    };
+  }
+}
+
+/**
+ * Hook 机制状态
+ *
+ * 为什么单列一项：hook 是【用户自己写的脚本】，
+ * 出问题时用户第一个怀疑的就是它 —— "我明明配了，怎么没生效？"
+ *
+ * /doctor 要能一眼回答三件事：
+ *   1. 配置到底有没有被读到（在哪读的）
+ *   2. 配了几个事件点、分别是什么
+ *   3. 配置本身有没有语法问题
+ */
+function describeHooks(): { name: string; ok: boolean; detail: string } {
+  try {
+    // 动态 require 避免顶层 import 造成循环依赖
+    const { getHookManager } = require('../agent/hooks/manager');
+    const { getDefaultCwd } = require('../agent/tools/paths');
+    const mgr = getHookManager(getDefaultCwd());
+
+    const cfgPath = mgr.configPath;
+    const problems: string[] = mgr.problems || [];
+
+    if (!cfgPath) {
+      return {
+        name: 'Hook 机制',
+        ok: true, // 没配 hook 是正常状态，不是问题
+        detail:
+          '未配置 hook（正常）\n' +
+          '           想用的话，在工作区放 .vscode/mini-coder-hooks.json\n' +
+          '           内置的「测试没过不许收工」用设置项 mini-coder.hooks.stopAutoTest 开启',
+      };
+    }
+
+    const events = Object.entries(mgr.config.hooks || {})
+      .map(([ev, list]) => `${ev}×${(list as any[]).length}`)
+      .join(' · ');
+
+    const detail =
+      `配置：${cfgPath}\n` +
+      `           事件点：${events || '（空）'}\n` +
+      (problems.length
+        ? `           ⚠️ 配置问题：${problems.join('；')}`
+        : '           配置格式正常');
+
+    return { name: 'Hook 机制', ok: problems.length === 0, detail };
+  } catch {
+    return {
+      name: 'Hook 机制',
       ok: false,
       detail: '无法读取状态（模块加载失败）',
     };

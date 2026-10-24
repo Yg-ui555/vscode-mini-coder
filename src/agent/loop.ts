@@ -65,6 +65,9 @@ import { maybeExternalize } from './toolOutputStore';
 import { MAX_ITERATIONS } from './limits';
 import { info } from '../logger';
 import { resetGuard, setVisibleCallIds, getGuard } from './tools/repeatGuard';
+import { getHookManager } from './hooks/manager';
+import { HookOutcome } from './hooks/types';
+import { getDefaultCwd } from './tools/paths';
 
 /**
  * ⭐ 双可见性：过滤出「模型可见」的消息
@@ -193,7 +196,15 @@ export function partitionToolCalls(
 export interface AgentCallbacks {
   onText: (chunk: string) => void;
   onToolCall: (name: string, args: any) => void;
-  onToolResult: (name: string, result: ToolResult) => void;
+  /**
+   * 工具执行结果回调
+   *
+   * ⚠️ args 是【可选】的第三个参数 —— 加它是为了让评测轨迹能回答
+   *    "agent 到底跑了什么命令"这个问题。
+   *    之前轨迹里 args 恒为空对象，导致消融实验只能看到"调了 35 次 run_shell"，
+   *    却不知道跑的是 `ls` 还是 `grep`（后者会让消融结论完全反过来）。
+   */
+  onToolResult: (name: string, result: ToolResult, args?: any) => void;
   onCompact?: (summary: string) => void;  // ← 新增：压缩事件回调
   /** 上下文用量变化（用于 UI 显示"已用 12k / 64k"） */
   onUsage?: (current: number, window: number) => void;
@@ -277,6 +288,13 @@ export class AgentLoop {
     //   （"结果是否还在上下文里"是跟本次会话绑定的，换任务必须重算）
     resetGuard();
 
+    // ⭐ Stop hook 的连续阻断计数也归零（换任务重新算）
+    getHookManager().resetStopBlocks();
+
+    // ⭐ UserPromptSubmit hook：用户刚发了消息，允许注入额外上下文
+    //   （当前 git 分支、待办清单……）
+    await this.runUserPromptSubmitHook(messages);
+
     for (let iteration = 0; iteration < this.maxIterations; iteration++) {
       // ⭐ 每轮前检查用户是否点了"停止"
       if (signal?.aborted) return this._abortedResult(messages);
@@ -324,6 +342,32 @@ export class AgentLoop {
         if (finalResponse.content) {
           messages.push({ role: 'assistant', content: finalResponse.content });
         }
+
+        // ⭐⭐ Stop hook —— "agent 说'我做完了'，但 hook 说'不许结束'"
+        //
+        //   这是整套 hook 机制最有价值的一个点。
+        //
+        //   为什么需要它：
+        //     AI 编程助手最典型的失败不是"没改对"，
+        //     而是"它【声称】改好了，其实没改对"——
+        //     而它自己是发现不了的：它跑一次测试看到绿色就收工了。
+        //
+        //   语义（抄 goose 的 ops_stop_hook.rs:80-119）：
+        //     Stop hook 跑测试 → 退出码非 0 → 把失败信息回给模型
+        //     → 模型继续干活 → 再跑一次
+        //     连续 8 次都失败 → 强制放行（防死循环烧钱）
+        const stopOutcome = await this.runStopHook(finalResponse.content || '', iteration);
+        if (stopOutcome.blocked) {
+          messages.push({
+            role: 'user',
+            content: stopOutcome.reason ?? '[Stop hook 拒绝结束回合，但没有给出原因]',
+          });
+          const firstLine = (stopOutcome.reason ?? '').split('\n')[0];
+          callbacks.onText?.(`\n⛔ ${firstLine}\n\n`);
+          // ⭐ 不 return —— 继续下一轮，让模型去修
+          continue;
+        }
+
         // ⭐ 整个 run 正常结束 → 通知上层清掉续跑快照
         callbacks.onToolProgress?.({
           iteration,
@@ -470,9 +514,15 @@ export class AgentLoop {
           // ⭐ 并行执行
           //   Promise.all 保证结果顺序 === 传入顺序（V8 规范保证），
           //   所以后面按顺序 push 就对了。
+          //
+          //   ⚠️ 注意 map 回调是 async 的，但 onToolCall 仍在第一个 await 之前，
+          //     所以【上报顺序】和以前完全一样（map 按顺序同步调用回调）。
           results = await Promise.all(
-            batch.calls.map((tc, idx) => {
+            batch.calls.map(async (tc, idx) => {
               callbacks.onToolCall(tc.name, parsed[idx]);
+              // ⭐ PreToolUse hook：可以否决这次工具调用
+              const denial = await this.runPreToolUseHook(tc.name, parsed[idx]);
+              if (denial) return denial;
               return this.registry.execute(tc.name, parsed[idx], signal);
             }),
           );
@@ -502,6 +552,12 @@ export class AgentLoop {
               return this._abortedResult(messages);
             }
             callbacks.onToolCall(tc.name, parsed[idx]);
+            // ⭐ PreToolUse hook：可以否决这次工具调用
+            const denial = await this.runPreToolUseHook(tc.name, parsed[idx]);
+            if (denial) {
+              results.push(denial);
+              continue;
+            }
             results.push(await this.registry.execute(tc.name, parsed[idx], signal));
           }
         }
@@ -537,7 +593,14 @@ export class AgentLoop {
             );
           }
 
-          callbacks.onToolResult(tc.name, { content: finalContent, isError: result.isError });
+          callbacks.onToolResult(tc.name, { content: finalContent, isError: result.isError }, parsed[idx]);
+
+          // ⭐ PostToolUse hook：工具跑完之后通知一下
+          //   它【不能阻断】—— 它的定位是"通知型"（跑格式化、记审计日志）。
+          await this.runPostToolUseHook(tc.name, parsed[idx], {
+            content: finalContent,
+            isError: result.isError,
+          });
 
           // ⭐ 写/执行类工具跑完后，让「外部查询计数」全部失效
           //
@@ -592,6 +655,95 @@ export class AgentLoop {
     });
 
     return summary;
+  }
+
+  // ─────────────────────── Hook 接入点 ───────────────────────
+  //
+  //  4 个事件点，每个都是一个小方法。
+  //  单独拎出来是为了让 loop.ts 的主流程保持可读 ——
+  //  真正的逻辑都在 src/agent/hooks/ 里。
+
+  /**
+   * UserPromptSubmit —— 用户刚发了一条消息
+   *
+   * hook 的 stdout 会被【注入到上下文】里。
+   * 典型用途：注入当前 git 分支、注入待办清单、注入时间。
+   */
+  private async runUserPromptSubmitHook(messages: any[]): Promise<void> {
+    const hooks = getHookManager();
+    if (!hooks.hasHooks) return;
+
+    // 找用户最后一条消息
+    let prompt = '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'user') {
+        prompt = String(messages[i].content ?? '');
+        break;
+      }
+    }
+
+    const outcome = await hooks.runUserPromptSubmit(prompt, getDefaultCwd());
+    if (outcome.problem) info(`[hook] UserPromptSubmit: ${outcome.problem}`);
+    if (!outcome.output) return;
+
+    messages.push({
+      role: 'user',
+      content: `[hook 注入的上下文]\n${outcome.output}`,
+    });
+    info(`[hook] UserPromptSubmit 注入 ${outcome.output.length} 字符上下文`);
+  }
+
+  /**
+   * PreToolUse —— 工具调用前
+   *
+   * @returns 被否决时返回一条错误结果（isError=true），否则 null
+   *
+   * ⚠️ 为什么被否决要当成【错误】而不是【成功但没结果】：
+   *   工具"失败"时 LLM 会硬来，"成功但没新信息"时 LLM 才会停下来换策略。
+   *   所以否决必须带上明确的原因，作为错误回给模型。
+   */
+  private async runPreToolUseHook(
+    tool: string,
+    args: any,
+  ): Promise<ToolResult | null> {
+    const hooks = getHookManager();
+    if (!hooks.hasHooks) return null;
+
+    const outcome = await hooks.runPreToolUse(tool, args ?? {}, getDefaultCwd());
+    if (outcome.problem) info(`[hook] PreToolUse: ${outcome.problem}`);
+    if (!outcome.blocked) return null;
+
+    return {
+      content: outcome.reason ?? `[工具调用被 PreToolUse hook 拒绝：${tool}]`,
+      isError: true,
+    };
+  }
+
+  /**
+   * PostToolUse —— 工具调用后（只通知，不阻断）
+   */
+  private async runPostToolUseHook(
+    tool: string,
+    args: any,
+    result: { content: string; isError?: boolean },
+  ): Promise<void> {
+    const hooks = getHookManager();
+    if (!hooks.hasHooks) return;
+
+    const outcome = await hooks.runPostToolUse(tool, args ?? {}, result, getDefaultCwd());
+    if (outcome.problem) info(`[hook] PostToolUse: ${outcome.problem}`);
+  }
+
+  /**
+   * Stop —— 回合结束前（能阻断）
+   */
+  private async runStopHook(response: string, iteration: number): Promise<HookOutcome> {
+    const hooks = getHookManager();
+    if (!hooks.hasHooks) return { blocked: false };
+
+    const outcome = await hooks.runStop(response, getDefaultCwd(), iteration);
+    if (outcome.problem) info(`[hook] Stop: ${outcome.problem}`);
+    return outcome;
   }
 
   /** 用户中断：保留已完成的对话，追加一条说明，返回 */

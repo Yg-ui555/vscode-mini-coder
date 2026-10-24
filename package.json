@@ -2,7 +2,7 @@
   "name": "vscode-mini-coder",
   "displayName": "Mini-Coder AI 编程助手",
   "description": "AI 编程助手：自动跑测试 + 中文 commit + 错题本归档，支持 BYOK（自带 API key）模式",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "shuxiangke-minicoder",
   "repository": {
     "type": "git",
@@ -127,6 +127,11 @@
           "default": "related",
           "markdownDescription": "**自动跑测试**的触发范围。保存文件后自动运行相关测试，失败时提示 AI 修复。"
         },
+        "mini-coder.hooks.stopAutoTest": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**内置 Stop hook：测试没过不许收工**。\n\n开启后，agent 说\"我做完了\"的时候会先跑一遍项目测试，没通过就把它打回去继续干（最多连续打回 8 次）。\n\n这是 Hook 机制（4 个生命周期点）的第一个消费者。想自己写 hook 的话，在工作区放 `.vscode/mini-coder-hooks.json`，格式见 README 的「Hook 机制」一节。\n\n> 和 `mini-coder.autoTestMode` 的区别：那个是**保存文件时**触发（文件监听），这个是**agent 收工时**触发（回合结束）。前者防的是\"忘了测\"，后者防的是\"说做好了其实没做好\"。"
+        },
         "mini-coder.approvalMode": {
           "type": "string",
           "enum": [
@@ -160,6 +165,7 @@
     "eval:verify": "tsc && node out/eval/verifyTasks.js",
     "eval:solvable": "tsc && node out/eval/verifySolvable.js",
     "eval:repeat": "tsc && node out/eval/cli.js --repeat 3",
+    "eval:ablate": "tsc && node out/eval/cli.js --ablate grep",
     "eval:compare": "node scripts/compareEval.js"
   },
   "devDependencies": {
