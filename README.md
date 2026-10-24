@@ -420,11 +420,11 @@ src/
 npm install
 npm run compile
 npm run build:webview
-npm test                    # 340 个用例
+npm test                    # 451 个用例
 npm run eval:verify         # 校验每题 baseline 设计合格
 npm run eval:solvable       # 校验每题不是废题（跑人写的标准答案）
 npm run eval -- --dry       # 验证评测链路（不花钱）
-npm run eval                # 真跑 18 题（约 ¥2~3）
+npm run eval                # 真跑 23 题（约 ¥3.3）
 ```
 
 按 `F5` 打开 Extension Development Host。详见 [RUN.md](RUN.md)。

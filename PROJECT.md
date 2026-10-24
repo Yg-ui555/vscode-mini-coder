@@ -66,6 +66,11 @@ src/
 │   ├── limits.ts          ← 硬限制单一真相源 ⭐ 2026-10-22
 │   ├── context.ts         ← System prompt 拼装（含技能索引）
 │   ├── toolOutputStore.ts ← 大输出外置 ⭐ 2026-10-22
+│   ├── hooks/             ← Hook 机制 ⭐ 2026-10-25
+│   │   ├── types.ts        ← 4 个事件点 + 三条铁律
+│   │   ├── config.ts       ← hooks.json 加载（第一个存在者生效）
+│   │   ├── runner.ts       ← 子进程执行 + 超时 + 退出码语义
+│   │   └── manager.ts      ← 调度 + matcher 正则 + Stop 阻断计数
 │   └── tools/
 │       ├── base.ts         ← Tool 接口
 │       ├── registry.ts     ← ToolRegistry
@@ -91,7 +96,9 @@ src/
 │   ├── runner.ts           ← 沙箱隔离 + baseline → after 比对
 │   ├── verifyTasks.ts      ← 出题铁律校验（判废题）
 │   ├── verifySolvable.ts   ← 标准答案校验（证明题不是废题）
-│   ├── report.ts           ← 人读报告 + 机读 JSON
+│   ├── report.ts           ← 人读报告 + 机读 JSON（含 case 级修好率）
+│   ├── cli.ts              ← 命令行入口（--repeat / --ablate / --dry）⭐ 2026-10-25
+│   ├── variance/           ← 评测方差统计（--repeat + cv + 显著性判定）
 │   └── baselines/          ← 历史基线存档（按 commit 命名）⭐ 2026-10-24
 └── features/
     ├── autoTest.ts        ← 特色 1：自动测试
@@ -154,6 +161,9 @@ AgentLoop.run()  ─────────────────────
 
 ### W7 评测集已建成（2026-10-20）
 
+> 📌 下表是 **W7 当时的快照（14 题）**，保留作为建设过程记录。
+> 当前题库是 **23 题**（2026-10-25 扩到 23），最新数据见文末 Phase 2 段。
+
 14 道题，三档难度：
 
 | 档位 | 编号 | 数量 | 考什么 |
@@ -207,8 +217,8 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | 项 | 状态 |
 |---|---|
 | 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
-| 测试 | **374 个用例 / 25 个文件全绿**（2026-10-24，Phase 1 改造后） |
-| pass rate | **100%（18/18，DeepSeek，2026-10-24，基线 commit 6bb6b92）** |
+| 测试 | **451 个用例 / 28 个文件全绿**（2026-10-25，Phase 2 + Hook 机制后） |
+| pass rate | **100%（23/23，DeepSeek-chat，2026-10-24，Phase 2 改造后）** |
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
 | 会话持久化 | ✅ JSONL 落盘，关掉 VS Code 再打开对话还在 |
