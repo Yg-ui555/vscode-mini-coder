@@ -2,7 +2,7 @@
   "name": "vscode-mini-coder",
   "displayName": "Mini-Coder AI 编程助手",
   "description": "AI 编程助手：自动跑测试 + 中文 commit + 错题本归档，支持 BYOK（自带 API key）模式",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "shuxiangke-minicoder",
   "repository": {
     "type": "git",
@@ -158,7 +158,9 @@
     "eval:dry": "tsc && node out/eval/cli.js --dry",
     "eval:list": "node out/eval/cli.js --list",
     "eval:verify": "tsc && node out/eval/verifyTasks.js",
-    "eval:solvable": "tsc && node out/eval/verifySolvable.js"
+    "eval:solvable": "tsc && node out/eval/verifySolvable.js",
+    "eval:repeat": "tsc && node out/eval/cli.js --repeat 3",
+    "eval:compare": "node scripts/compareEval.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

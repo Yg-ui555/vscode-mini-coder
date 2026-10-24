@@ -17,19 +17,54 @@ import * as path from 'path';
 import { loadAllTasks, TaskMeta, evalRoot } from './types';
 import { runTask, EvalConfig, TaskResult } from './runner';
 import { summarize, writeReports } from './report';
+import {
+  summarizeRuns,
+  summarizeSuite,
+  TaskStatistics,
+} from './statistics';
 
 interface Args {
   filters: string[];
   list: boolean;
   dry: boolean;
+  /**
+   * ⭐ 重复运行次数（2026-10-24）
+   *
+   *   为什么需要：
+   *     实测发现单次运行的噪声极大 ——
+   *     同一份代码，同一批题，单次 token 能从 -67% 波动到 +233%。
+   *     这时候单次对比得出的结论，很可能是噪声而不是真实差异。
+   *
+   *   用法：
+   *     npm run eval -- --repeat 3        每题跑 3 次，输出方差统计
+   *     npm run eval -- --repeat 3 13 21  只把这几题跑 3 次
+   *
+   *   成本提醒：--repeat N 会让成本变成 N 倍。
+   */
+  repeat: number;
 }
 
 function parseArgs(): Args {
   const argv = process.argv.slice(2);
+
+  // 解析 --repeat N（也支持 --repeat=N）
+  let repeat = 1;
+  const repeatIdx = argv.indexOf('--repeat');
+  if (repeatIdx >= 0) {
+    const v = Number(argv[repeatIdx + 1]);
+    if (Number.isFinite(v) && v >= 1) repeat = Math.floor(v);
+  }
+  const repeatEq = argv.find((a) => a.startsWith('--repeat='));
+  if (repeatEq) {
+    const v = Number(repeatEq.split('=')[1]);
+    if (Number.isFinite(v) && v >= 1) repeat = Math.floor(v);
+  }
+
   return {
     filters: argv.filter((a) => /^\d\d?$/.test(a)),
     list: argv.includes('--list'),
     dry: argv.includes('--dry'),
+    repeat,
   };
 }
 
@@ -122,39 +157,54 @@ async function main() {
   const startedAt = Date.now();
   const results: TaskResult[] = [];
 
+  // ⭐ 重复运行时，每题的多次结果分开存（用于方差统计）
+  const perTaskRuns = new Map<string, TaskResult[]>();
+
   for (const task of tasks) {
-    process.stdout.write(`▶ ${task.id.padEnd(24)} ${task.title.slice(0, 30).padEnd(32)}`);
-    try {
-      const result = args.dry
-        ? await runDryTask(task, config)
-        : await runTask(task, config);
+    const taskRuns: TaskResult[] = [];
 
-      results.push(result);
+    for (let run = 1; run <= args.repeat; run++) {
+      const runLabel = args.repeat > 1 ? ` (第${run}/${args.repeat}次)` : '';
+      process.stdout.write(
+        `▶ ${task.id.padEnd(24)} ${task.title.slice(0, 30).padEnd(32)}${runLabel}`,
+      );
+      try {
+        const result = args.dry
+          ? await runDryTask(task, config)
+          : await runTask(task, config);
 
-      const icon =
-        result.verdict === 'pass'
-          ? '✅ pass'
-          : result.verdict === 'regressed'
-            ? `⚠️ regressed(${result.regressions.length})`
-            : result.verdict === 'error'
-              ? '🔧 error'
-              : '❌ fail';
-      // ⭐ 每题后面直接跟成本：跑到一半就能看出"这题贵不贵"，
-      //   不用等全部跑完才在报告里翻。
-      const cost = result.cost
-        ? `¥${result.cost.cost.toFixed(4)} ${result.llmCalls ?? 0}轮`
-        : '';
-      console.log(icon.padEnd(22) + `${(result.durationMs / 1000).toFixed(1)}s`.padEnd(9) + cost);
-      if (result.error) console.log(`    ↳ ${result.error.split('\n')[0]}`);
-    } catch (e: any) {
-      console.log(`🔧 error  ${e?.message || e}`);
-      results.push({
-        id: task.id, tier: task.tier, title: task.title, verdict: 'error',
-        fixedCases: [], regressions: [], stillFailing: [], cases: [],
-        toolTrace: [], changedFiles: [], finalAnswer: '', durationMs: 0,
-        error: String(e?.stack || e),
-      });
+        taskRuns.push(result);
+        results.push(result);
+
+        const icon =
+          result.verdict === 'pass'
+            ? '✅ pass'
+            : result.verdict === 'regressed'
+              ? `⚠️ regressed(${result.regressions.length})`
+              : result.verdict === 'error'
+                ? `🔧 error`
+                : '❌ fail';
+        // ⭐ 每题后面直接跟成本：跑到一半就能看出"这题贵不贵"，
+        //   不用等全部跑完才在报告里翻。
+        const cost = result.cost
+          ? `¥${result.cost.cost.toFixed(4)} ${result.llmCalls ?? 0}轮`
+          : '';
+        console.log(icon.padEnd(22) + `${(result.durationMs / 1000).toFixed(1)}s`.padEnd(9) + cost);
+        if (result.error) console.log(`    ↳ ${result.error.split('\n')[0]}`);
+      } catch (e: any) {
+        console.log(`🔧 error  ${e?.message || e}`);
+        const errResult: TaskResult = {
+          id: task.id, tier: task.tier, title: task.title, verdict: 'error',
+          fixedCases: [], regressions: [], stillFailing: [], cases: [],
+          toolTrace: [], changedFiles: [], finalAnswer: '', durationMs: 0,
+          error: String(e?.stack || e),
+        };
+        taskRuns.push(errResult);
+        results.push(errResult);
+      }
     }
+
+    perTaskRuns.set(task.id, taskRuns);
   }
 
   const summary = summarize(results, {
@@ -179,6 +229,12 @@ async function main() {
     }
   }
   console.log('─'.repeat(58) + '\n');
+
+  // ⭐ 重复运行时输出方差报告（2026-10-24）
+  if (args.repeat > 1) {
+    printVarianceReport(perTaskRuns);
+  }
+
   console.log(`📄 报告：${md}`);
   console.log(`📊 原始数据：${json}\n`);
 }
@@ -201,6 +257,54 @@ async function runDryTask(task: TaskMeta, config: EvalConfig): Promise<TaskResul
   } finally {
     RealProvider.prototype.stream = orig;
   }
+}
+
+
+/**
+ * ⭐ 打印方差报告（2026-10-24）
+ *
+ * 目的：让"这个改动到底有没有效"变成一个【可判定】的问题。
+ *
+ * 类比：
+ *   想知道新代码快不快，先得知道这台机器的跑分能差多少。
+ *   差异大于噪声 → 是真改进；差异小于噪声 → 是运气。
+ */
+function printVarianceReport(perTaskRuns: Map<string, TaskResult[]>): void {
+  const stats: TaskStatistics[] = [];
+  for (const [taskId, runs] of perTaskRuns) {
+    if (runs.length === 0) continue;
+    stats.push(summarizeRuns(taskId, runs[0].tier, runs[0].title, runs));
+  }
+
+  const suite = summarizeSuite(stats);
+
+  console.log('📊 方差报告（每题跑多次）');
+  console.log('─'.repeat(78));
+  console.log(
+    `  ${'题目'.padEnd(30)} ${'通过率'.padStart(8)} ${'token 均值'.padStart(12)} ` +
+      `${'标准差'.padStart(10)} ${'cv'.padStart(8)} ${'波动'.padStart(6)}`,
+  );
+
+  for (const s of suite.perTask) {
+    const idPadded = s.taskId.length > 29 ? s.taskId.slice(0, 29) : s.taskId;
+    console.log(
+      `  ${idPadded.padEnd(30)} ` +
+        `${(s.passRate.toFixed(0) + '%').padStart(8)} ` +
+        `${s.meanTokens.toLocaleString('en-US').padStart(12)} ` +
+        `${s.stddevTokens.toLocaleString('en-US').padStart(10)} ` +
+        `${(s.cvTokens * 100).toFixed(1).padStart(7)}% ` +
+        `${(s.highVariance ? '⚠️大' : '正常').padStart(6)}`,
+    );
+  }
+
+  console.log('─'.repeat(78));
+  console.log(`  整体 token 变异系数：${(suite.suiteCvTokens * 100).toFixed(1)}%`);
+  console.log(`  波动大的题：${suite.highVarianceCount} / ${suite.perTask.length}`);
+  console.log(
+    `  ⭐ 解读：cv > 15% 的题，单次对比得出的差异【不可信】——\n` +
+      `     必须跑多次看分布。这也是为什么"某题 token 涨了 233%"不能直接当结论。`,
+  );
+  console.log('');
 }
 
 main().catch((e) => {
