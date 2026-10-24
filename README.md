@@ -323,6 +323,38 @@ npm run audit -- "D:\wxu\wxu-multimodal-smart-agent"
 > 第 2 条连带修正了上一轮消融实验的一处不严谨表述，
 > 已同步更新到 [`eval/ABLATION.md`](eval/ABLATION.md)。
 
+### ⭐ 同一个插件，还能在真实项目上【动手改】
+
+体检是只读的。改造模式用**同一套 AgentLoop + 完整工具集**（含 `apply_patch` / `run_shell`）
+在真实项目上执行一份任务书：
+
+```bash
+npm run audit -- "D:\wxu\wxu-multimodal-smart-agent" --task scripts/example-task.md
+```
+
+任务书里写清楚三件事：**改哪几处（精确到文件行号）+ 禁改清单 + 验收标准**。
+示例见 [`scripts/example-task.md`](scripts/example-task.md)。
+
+实测（同一个真实项目，5 项机械改造：常量提取 / 删重复赋值 / 配置外置 / 补静默异常日志 / 补 .gitignore）：
+
+| 指标 | 值 |
+|---|---|
+| LLM 轮数 / 工具调用 | 30 / 51（read_file×24 / grep×11 / apply_patch×6 / run_shell×7 / write_file×1 / record_note×1） |
+| 耗时 / 成本 | 125.2s / ¥1.25 |
+| 实际改动 | **11 个文件修改 + 1 个新建**（+47 / −23 行） |
+| **改动清单一致性** | 插件自己算的（1 新增 / 11 修改 / 0 删除）与 `git diff --stat` **完全一致** |
+| **回归检测** | pytest 改前 `3 failed / 19 passed` → 改后 **完全相同**，**0 回归** |
+| 行为不变验证 | `TextChunker()` 默认值仍是 `800 150`（提了常量但数值没动） |
+| 禁改清单 | `retriever.py` 合规过滤器 / `llm_chain.py` prompt / `curriculum/db.py` / `dispatcher.py` —— **一个没碰** |
+
+而且 agent **主动交代了两处超出字面要求的取舍**（「`user_store.py` 实际是 5 处静默异常，不是任务书说的 4 处左右」
+「`_read_json` 加了 `if path.exists()` 守卫，否则新建 session 时会刷噪音」），没有瞒报。
+
+> 这个模式最有价值的一点：**改动清单是插件自己算的** —— 跑之前给每个文件拍 hash，
+> 跑完对比出新增/修改/删除。**不依赖目标项目有 git**（很多用户的项目没初始化版本管理）。
+> 而回归检测靠的是「改前跑一次测试、改后跑一次测试」的三方比对，
+> 这正是插件在评测集里验证过的那套 L4 机制 —— 这次用在了真实项目上。
+
 ---
 
 ## 与开源项目的横向对比

@@ -27,6 +27,7 @@ require('../out/eval/shim'); // ⭐ 第 0 个：劫持 require('vscode')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const { OpenAIProvider } = require('../out/agent/provider');
 const { AgentLoop } = require('../out/agent/loop');
@@ -56,6 +57,7 @@ function parseArgs(argv) {
     iterations: 40,
     out: '',
     full: false,
+    task: '',
     timeoutMs: 15 * 60 * 1000,
   };
   const rest = [];
@@ -63,6 +65,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--iterations') opts.iterations = parseInt(argv[++i], 10) || opts.iterations;
     else if (a === '--out') opts.out = argv[++i];
+    else if (a === '--task') opts.task = argv[++i];
     else if (a === '--full') opts.full = true;
     else if (a === '--timeout') opts.timeoutMs = (parseInt(argv[++i], 10) || 15) * 60 * 1000;
     else rest.push(a);
@@ -165,6 +168,52 @@ function scanDiagnostics(workspace) {
   };
 }
 
+/* ────────────── 改前后快照（写模式用） ────────────── */
+
+/**
+ * 给每个文件算一个 hash，用来对比「agent 到底改了哪些文件」
+ *
+ * ⚠️ 为什么要自己算，而不是直接用 git：
+ *   插件的改动检测应该【不依赖目标项目有 git】——
+ *   很多用户的项目没初始化 git，或者用了别的版本管理。
+ *   git 只是一层额外的人工兜底，不是唯一依据。
+ */
+function snapshotFiles(root) {
+  const { files } = walkFiles({ root });
+  const map = {};
+  for (const f of files) {
+    const rel = f.rel;
+    // 版本控制内部目录不比对
+    if (rel.startsWith('.git/') || rel.includes('/.git/')) continue;
+    try {
+      const st = fs.statSync(f.abs);
+      if (st.size > 2 * 1024 * 1024) {
+        map[rel] = 'SKIP_BIG';
+        continue;
+      }
+      map[rel] = crypto.createHash('md5').update(fs.readFileSync(f.abs)).digest('hex');
+    } catch {
+      map[rel] = 'SKIP_ERR';
+    }
+  }
+  return map;
+}
+
+/** 对比两份快照，得出 新增 / 修改 / 删除 三类 */
+function diffSnapshots(before, after) {
+  const added = [];
+  const modified = [];
+  const deleted = [];
+  for (const [f, h] of Object.entries(after)) {
+    if (!(f in before)) added.push(f);
+    else if (before[f] !== h) modified.push(f);
+  }
+  for (const f of Object.keys(before)) {
+    if (!(f in after)) deleted.push(f);
+  }
+  return { added, modified, deleted };
+}
+
 /* ────────────── 主流程 ────────────── */
 
 async function main() {
@@ -179,11 +228,29 @@ async function main() {
     process.exit(1);
   }
 
+  // ── 任务书：--task 指向一个文件，里面的内容就是给 agent 的任务 ──
+  let promptText = AUDIT_PROMPT;
+  let taskName = '项目体检';
+  if (opts.task) {
+    const taskPath = path.resolve(opts.task);
+    if (!fs.existsSync(taskPath)) {
+      console.error(`❌ 任务书不存在：${taskPath}`);
+      process.exit(1);
+    }
+    promptText = fs.readFileSync(taskPath, 'utf-8');
+    taskName = path.basename(taskPath);
+  }
+  // 任务书模式 = 要动手改，给全部工具；体检模式 = 只读
+  const useFullTools = opts.full || !!opts.task;
+
   console.log('═'.repeat(62));
   console.log('Mini-Coder 项目体检');
   console.log('═'.repeat(62));
   console.log(`工作区：${workspace}`);
-  console.log(`工具集：${opts.full ? '全部 9 个（含写文件 + run_shell）' : '只读 4 个（read_file / grep / glob / list_dir）'}`);
+  console.log(`模式：${opts.task ? `执行任务书（${taskName}）` : '只读体检'}`);
+  console.log(
+    `工具集：${useFullTools ? '全部 9 个（含写文件 + run_shell）' : '只读 4 个（read_file / grep / glob / list_dir）'}`,
+  );
   console.log(`最大轮数：${opts.iterations}`);
   console.log('');
 
@@ -222,18 +289,26 @@ async function main() {
   setEvalWorkspace(workspace);
   setWorkspaceRoot(workspace);
   setNonInteractive(true);
-  setCheckpointEnabled(false); // 不写 .mini-coder/checkpoint
+  // ⭐ 写模式【开 checkpoint】—— 顺便验证「改错了能退回来」这个能力。
+  //   只读模式不需要（不写文件，存了也是白存）。
+  //   checkpoint 落在 <工作区>/.mini-coder/checkpoints/，
+  //   所以任务书里会要求把 .mini-coder/ 加进 .gitignore。
+  setCheckpointEnabled(useFullTools);
   setToolOutputEnabled(false); // 不写 .mini-coder/tool-output
-  setNotesRoot(sandboxNotes); // 不写 .notes
+  setNotesRoot(sandboxNotes); // 错题本写到工作区外，不在用户项目里造 .notes/
 
-  const registry = opts.full ? createDefaultRegistry() : createReadOnlyRegistry();
+  const registry = useFullTools ? createDefaultRegistry() : createReadOnlyRegistry();
   const provider = new OpenAIProvider(baseUrl, apiKey, model);
   const loop = new AgentLoop(provider, registry, opts.iterations, model);
 
   const messages = [
     { role: 'system', content: new ContextBuilder(workspace, null, registry.names).buildSystemPrompt() },
-    { role: 'user', content: AUDIT_PROMPT },
+    { role: 'user', content: promptText },
   ];
+
+  // ⭐ 写模式：跑之前给所有文件拍个快照，跑完对比出「到底改了哪些文件」
+  //   这是插件自己的改动检测，不依赖目标项目有 git。
+  const snapshotBefore = useFullTools ? snapshotFiles(workspace) : null;
 
   const toolTrace = [];
   const tokenTotal = emptyUsage();
@@ -293,6 +368,20 @@ async function main() {
   const durationMs = Date.now() - t0;
   const cost = estimateCost(tokenTotal, model);
 
+  // ⭐ 写模式：跑完对比快照，得出 agent 实际改了哪些文件
+  let changes = null;
+  if (snapshotBefore) {
+    const snapshotAfter = snapshotFiles(workspace);
+    changes = diffSnapshots(snapshotBefore, snapshotAfter);
+    const total = changes.added.length + changes.modified.length + changes.deleted.length;
+    console.log('');
+    console.log(`【改动检测】新增 ${changes.added.length} · 修改 ${changes.modified.length} · 删除 ${changes.deleted.length}`);
+    for (const f of changes.modified) console.log(`  改  ${f}`);
+    for (const f of changes.added) console.log(`  新  ${f}`);
+    for (const f of changes.deleted) console.log(`  删  ${f}`);
+    if (total === 0) console.log('  （没有任何文件被改动）');
+  }
+
   // ── 出报告 ──
   const outDir = path.join(__dirname, '..', '.tmp');
   fs.mkdirSync(outDir, { recursive: true });
@@ -307,9 +396,19 @@ async function main() {
 > 由 Mini-Coder 自己的 AgentLoop 生成（\`scripts/auditProject.js\`）
 > 工作区：\`${workspace}\`
 > 时间：${new Date().toLocaleString('zh-CN')}
-> 模型：${providerName} / ${model} · 工具集：${opts.full ? '全部 9 个' : '只读 4 个'}
+> 模型：${providerName} / ${model} · 工具集：${useFullTools ? '全部 9 个' : '只读 4 个'}
 
-## 执行统计
+${changes
+      ? `## ⚠️ 改动清单（插件自己算的，不依赖 git）
+
+| 类别 | 数量 | 文件 |
+|---|---|---|
+| 新增 | ${changes.added.length} | ${changes.added.map((f) => `\`${f}\``).join('、') || '—'} |
+| 修改 | ${changes.modified.length} | ${changes.modified.map((f) => `\`${f}\``).join('、') || '—'} |
+| 删除 | ${changes.deleted.length} | ${changes.deleted.map((f) => `\`${f}\``).join('、') || '—'} |
+
+`
+      : ''}## 执行统计
 
 | 指标 | 值 |
 |---|---|
