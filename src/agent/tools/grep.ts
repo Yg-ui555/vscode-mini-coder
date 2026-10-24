@@ -35,6 +35,7 @@ import {
   globToRegExp,
   makeDescendPredicate,
 } from './fileScan';
+import { getGuard } from './repeatGuard';
 
 /** 默认最多返回多少条匹配（超了截断，防止撑爆上下文） */
 const DEFAULT_MAX_RESULTS = 100;
@@ -127,6 +128,29 @@ export class GrepTool implements Tool {
     const limit = Math.min(args.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS);
     const descend = nameFilter ? makeDescendPredicate(args.glob) : undefined;
 
+    // ⭐ 重复 grep 检测（2026-10-24）
+    //
+    //   借鉴 nanobot/utils/runtime.py:93-131 的"重复查询节流"：
+    //     对 web_search 按 query 签名、web_fetch 按 URL 签名，
+    //     第 3 次直接拦截并让模型"换个有实质区别的信息源"。
+    //
+    //   为什么 grep 也要拦：
+    //     eval 报告里 15-hard-grep-discipline「最多重复 7 次」——
+    //     agent 反复搜同一个 pattern，每次都把一整屏匹配结果塞回上下文。
+    //     而 ReAct 每轮重发全量上下文，这些重复结果会被反复计费。
+    //
+    //   签名包含 pattern + path + glob：
+    //     换 pattern 就不算重复（那是真的在找别的东西）；
+    //     只换 path/glob 也不算（范围变了，结果可能不同）。
+    //
+    //   ⚠️ 返回的是信息性提示而不是错误 —— 理由见 repeatGuard.ts 顶部说明。
+    const grepSignature = `${pattern}|${args.path ?? ''}|${args.glob ?? ''}|${args.caseSensitive ? 's' : 'i'}`;
+    const guard = getGuard();
+    const repeatHint = guard.checkQuery('grep', grepSignature);
+    if (repeatHint) {
+      return { content: repeatHint };
+    }
+
     const { files, truncated: scanTruncated, reason } = walkFiles({
       root,
       shouldDescend: descend,
@@ -184,6 +208,7 @@ export class GrepTool implements Tool {
         `2. 范围不对 —— 用 glob 放宽限制，比如 glob="**/*.ts"\n` +
         `3. 用了 list_dir / glob 确认一下文件真的存在`;
       if (scanTruncated) msg += `\n⚠️ ${reason}，结果可能不完整。`;
+      guard.recordQuery('grep', grepSignature);
       return { content: msg };
     }
 
@@ -205,6 +230,7 @@ export class GrepTool implements Tool {
       `\n\n下一步：用 read_file 配合上面的 行号 读取上下文，` +
       `或用 apply_patch 修改。`;
 
+    guard.recordQuery('grep', grepSignature);
     return { content: header + matches.join('\n') + footer };
   }
 }

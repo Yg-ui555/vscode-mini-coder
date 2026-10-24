@@ -81,6 +81,34 @@ body {
   border-left: 3px solid var(--vscode-errorForeground);
 }
 
+/* ⭐ 双可见性（2026-10-24）：被上下文压缩的历史消息
+   ────────────────────────────────────────────────────────
+   类比：这本笔记的前半部分已经被复印成摘要给助手看了，
+   但原件还在这儿，你可以随时翻出来核对。
+   所以是【灰显】而不是【隐藏】——隐藏会让用户以为对话丢了。 */
+.message.compacted {
+  opacity: 0.55;
+  border-left: 3px solid var(--vscode-descriptionForeground, #888);
+  position: relative;
+}
+
+.message.compacted:hover {
+  opacity: 0.85;
+}
+
+/* 「已压缩」角标 */
+.compacted-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--vscode-descriptionForeground, #888);
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.18));
+  border-radius: 3px;
+  user-select: none;
+}
+
 .tool-card {
   margin-top: 8px;
   padding: 8px 10px;

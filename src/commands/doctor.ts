@@ -93,6 +93,10 @@ export async function runDoctor(
   // 7. ⭐ 权限档位 —— 用户最需要随时知道"现在它能对我做什么"
   checks.push(describeApprovalTier());
 
+  // 8. ⭐ 重复调用检测状态（2026-10-24）
+  //    让用户能看见"省 token 的机制在工作"，而不只是相信它
+  checks.push(describeRepeatGuard());
+
   // 输出报告
   const lines = checks.map((c) => {
     const icon = c.ok ? '✅' : '❌';
@@ -156,6 +160,43 @@ function describeApprovalTier(): { name: string; ok: boolean; detail: string } {
       (blocked.length ? `           本档需要确认：${blocked.join(', ')}` : '           本档不拦截任何工具') +
       `\n           切换：命令面板 → "Mini-Coder: 权限档位"，或点状态栏的权限项`,
   };
+}
+
+/**
+ * 重复调用检测的状态
+ *
+ * 为什么要在 /doctor 里展示这个：
+ *   重复检测是个【看不见的优化】—— 用户只会感觉到"好像变快了/变便宜了"，
+ *   但说不清为什么。把它显式列出来，用户能确认这个机制在工作。
+ *
+ * 顺便暴露一个设计意图：
+ *   "省下来的 token"不是靠少做事，是靠【不重复做事】——
+ *   而"不重复"的前提是每次重做都真的有必要。
+ */
+function describeRepeatGuard(): { name: string; ok: boolean; detail: string } {
+  try {
+    // 动态 require 避免顶层 import 造成循环依赖
+    const { getGuard } = require('../agent/tools/repeatGuard');
+    const guard = getGuard();
+
+    const reads = guard.readCount;
+    const queries = guard.queryCount;
+
+    return {
+      name: '重复调用检测',
+      ok: true, // 只是状态展示，不是"问题"
+      detail:
+        `已记录 ${reads} 个文件读取回执 · ${queries} 个查询签名\n` +
+        `           命中时会提示 agent "内容没变，直接用之前的结果"，省掉重复的上下文\n` +
+        `           写文件后查询计数会自动失效（结果变了就该重查）`,
+    };
+  } catch {
+    return {
+      name: '重复调用检测',
+      ok: false,
+      detail: '无法读取状态（模块加载失败）',
+    };
+  }
 }
 
 /** 检查工具能否正常实例化（捕获构造期异常，比如白名单配置错误） */

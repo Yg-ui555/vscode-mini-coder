@@ -464,17 +464,33 @@ export class ChatPanel {
    * 内部结构里 assistant 消息带 tool_calls、tool 消息带 tool_call_id，
    * 但前端只需要"角色 + 文本 + 有哪些工具被调用过"，所以这里做一次降维。
    * 这样恢复历史时不会把一堆原始 JSON 塞给前端。
+   *
+   * ⭐ 2026-10-24 双可见性改造：
+   *   · agentVisible=false 的消息【仍然显示】，但标记 compacted=true，
+   *     前端把它渲染成灰显 + "已压缩"角标。
+   *     这就是双可见性的用户侧收益：
+   *     长对话后仍能回看完整历史，而模型只看摘要。
+   *   · userVisible=false 的消息【不显示】（比如压缩摘要 —— 用户不需要看技术摘要）。
    */
   private _messagesToWebview(): Array<{
     role: string;
     content: string;
     tools?: Array<{ name: string; result?: string; isError?: boolean }>;
+    /** ⭐ 被压缩的历史消息：显示但灰显 */
+    compacted?: boolean;
   }> {
     const out: any[] = [];
 
     for (const m of this._messages) {
       // system prompt 不给用户看
       if (m.role === 'system') continue;
+
+      // ⭐ userVisible=false → 只给模型看，用户不需要看到
+      //   （比如压缩产生的技术摘要）
+      if (m.userVisible === false) continue;
+
+      // ⭐ agentVisible=false → 模型看不见了，但用户还能看（灰显）
+      const compacted = m.agentVisible === false;
 
       const text =
         typeof m.content === 'string'
@@ -493,7 +509,12 @@ export class ChatPanel {
             t.result = text.slice(0, 500);
           }
         } else {
-          out.push({ role: 'assistant', content: '', tools: [{ name, result: text.slice(0, 500) }] });
+          out.push({
+            role: 'assistant',
+            content: '',
+            tools: [{ name, result: text.slice(0, 500) }],
+            ...(compacted ? { compacted: true } : {}),
+          });
         }
         continue;
       }
@@ -506,9 +527,18 @@ export class ChatPanel {
 
       if (text && out.length > 0 && out[out.length - 1].role === 'assistant' && tools.length > 0) {
         // assistant 既说了话又要调工具：合并
-        out[out.length - 1] = { ...out[out.length - 1], tools };
+        out[out.length - 1] = {
+          ...out[out.length - 1],
+          tools,
+          ...(compacted ? { compacted: true } : {}),
+        };
       } else {
-        out.push({ role: m.role, content: text, ...(tools.length > 0 ? { tools } : {}) });
+        out.push({
+          role: m.role,
+          content: text,
+          ...(tools.length > 0 ? { tools } : {}),
+          ...(compacted ? { compacted: true } : {}),
+        });
       }
     }
 

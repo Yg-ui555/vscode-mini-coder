@@ -62,8 +62,22 @@ export interface StoredMessage {
   /** tool_calls / tool_call_id 等原样保留 */
   tool_calls?: any[];
   tool_call_id?: string;
-  /** agentVisible=false 的消息不再发给模型，但仍保留在文件里 */
+  /**
+   * ⭐ 双可见性（2026-10-24）
+   *
+   *   agentVisible=false → 这条消息【不再发给模型】，但仍保留在文件里，
+   *   用户在面板里仍能滚动查看（灰显状态）。
+   *
+   *   借鉴 goose 的 MessageMetadata { user_visible, agent_visible }
+   *   （goose-provider-types/src/conversation/message.rs:828-834）
+   *
+   *   语义：
+   *     · undefined / true → 两边都可见（默认）
+   *     · agentVisible: false → 只对用户可见
+   *     · userVisible: false → 只对模型可见（比如压缩摘要）
+   */
   agentVisible?: boolean;
+  userVisible?: boolean;
 }
 
 export type StoredLine = SessionMeta | StoredMessage;
@@ -198,6 +212,7 @@ export class SessionStore {
       if (m.tool_calls) stored.tool_calls = m.tool_calls;
       if (m.tool_call_id) stored.tool_call_id = m.tool_call_id;
       if (m.agentVisible === false) stored.agentVisible = false;
+      if (m.userVisible === false) stored.userVisible = false;
       lines.push(JSON.stringify(stored));
     }
 
@@ -240,6 +255,7 @@ export class SessionStore {
           if (parsed.tool_calls) m.tool_calls = parsed.tool_calls;
           if (parsed.tool_call_id) m.tool_call_id = parsed.tool_call_id;
           if (parsed.agentVisible === false) m.agentVisible = false;
+          if (parsed.userVisible === false) m.userVisible = false;
           messages.push(m);
         }
       } catch {
