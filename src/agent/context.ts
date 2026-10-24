@@ -45,6 +45,23 @@ export class ContextBuilder {
   constructor(
     private workspaceRoot: string | null = null,
     private extensionPath: string | null = null,
+    /**
+     * ⭐ 实际可用的工具名（2026-10-25 新增）
+     *
+     * 为什么要这个参数：
+     *   prompt 里原本【无条件】教 LLM 用 record_note 记错题本。
+     *   但工具集是动态的 —— 只读模式、工具消融（--ablate）都会把某些工具摘掉。
+     *   于是就出现这种画面：prompt 说「有收获就调用 record_note」，
+     *   而 record_note 根本不在 schema 里 → LLM 去调 → 工具不存在 → 白烧一轮。
+     *
+     *   更严重的是它让【消融实验的结论不成立】：
+     *   消融的前提是"LLM 连有这个工具都不知道"，
+     *   但 prompt 里写着 record_note 的用法 —— 对 record_note 的消融是漏的。
+     *
+     * 传 null = 不限定（保持旧行为，prompt 写全量工具说明）。
+     * 传数组 = 只描述实际有的工具。
+     */
+    private toolNames: string[] | null = null,
   ) {}
 
   /**
@@ -66,18 +83,41 @@ export class ContextBuilder {
 
   /** 核心身份与工作流约定 */
   private _getIdentity(): string {
+    // ⭐ 工具可用性判断（toolNames 为 null = 不限定，保持旧行为完全不变）
+    const has = (n: string): boolean => this.toolNames === null || this.toolNames.includes(n);
+
+    const ruleTexts: string[] = ['先了解再动手：动手前先 ls / read / grep，不要盲目改'];
+    if (has('apply_patch') || has('write_file')) {
+      ruleTexts.push('优先用 apply_patch，不用 write_file 整文件覆盖');
+    }
+    if (has('run_shell')) {
+      ruleTexts.push('修改后必须验证：改完跑测试，确认没破坏其他功能');
+    }
+    ruleTexts.push('不要生造内容：read 不到就说不存在，不要瞎编');
+    ruleTexts.push('承认错误：发现改错立刻 rollback');
+
+    // 工作流步骤也按实际可用的工具拼 —— 只读模式不该教它"改完跑测试"
+    const workflow: string[] = [];
+    if (has('list_dir')) workflow.push('用户问任务 → list_dir 了解结构');
+    if (has('grep') || has('read_file')) workflow.push('grep / read_file 定位相关代码');
+    if (has('apply_patch') || has('write_file')) workflow.push('apply_patch 改代码');
+    if (has('run_shell')) workflow.push('run_shell 跑测试');
+    if (has('record_note')) workflow.push('有收获就 record_note 记一条');
+    workflow.push('报告结果');
+
+    // 能力总述也按实际工具拼 —— 只读模式不该宣称自己能"改文件、跑命令"
+    const capabilities: string[] = ['读文件'];
+    if (has('apply_patch') || has('write_file')) capabilities.push('改文件');
+    if (has('run_shell')) capabilities.push('跑命令', '跑测试');
+
     return `# Mini-Coder 身份
 
 你是 VS Code AI 编程助手，运行在用户本地工作目录。
-目标：帮用户完成真实编码任务——读文件、改文件、跑命令、跑测试。
+目标：帮用户完成真实编码任务——${capabilities.join('、')}。
 
 # 核心约定
 
-1. 先了解再动手：动手前先 ls / read / grep，不要盲目改
-2. 优先用 apply_patch，不用 write_file 整文件覆盖
-3. 修改后必须验证：改完跑测试，确认没破坏其他功能
-4. 不要生造内容：read 不到就说不存在，不要瞎编
-5. 承认错误：发现改错立刻 rollback
+${ruleTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
 # 中文 commit 规范
 
@@ -93,7 +133,9 @@ export class ContextBuilder {
 格式：\`类型: 简短描述（不超过 50 字）\`
 示例：\`功能: 加登录页支持 OAuth 登录\`
 
-# 错题本归档（record_note）
+${
+  has('record_note')
+    ? `# 错题本归档（record_note）
 
 任务结束前，如果你【学到了东西】，调用 record_note 记一条。什么算学到：
 - 改了不 obvious 的东西 —— 说清为什么这么选、放弃了哪些方案
@@ -103,16 +145,13 @@ export class ContextBuilder {
 **不要记**：纯机械改动（改常量、加日志、改注释）、没学到新东西时。
 错题本被垃圾淹没就失去意义了。
 
-pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志"的关键。
+pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志"的关键。`
+    : ''
+}
 
 # 工作流（典型顺序）
 
-1. 用户问任务 → list_dir 了解结构
-2. grep / read_file 定位相关代码
-3. apply_patch 改代码
-4. run_shell 跑测试
-5. 有收获就 record_note 记一条
-6. 报告结果
+${workflow.map((w, i) => `${i + 1}. ${w}`).join('\n')}
 
 # 工具限制
 

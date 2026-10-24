@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Tool, ToolResult } from './base';
 import { resolveInWorkspace, getDefaultCwd, toWorkspaceRelative } from './paths';
-import { IGNORED_DIRS, isBinaryPath } from './fileScan';
+import { isIgnoredDirName, isBinaryPath } from './fileScan';
 import { readOnlyMeta } from './meta';
 
 const DEFAULT_MAX_ENTRIES = 200;
@@ -88,7 +88,9 @@ export class ListDirTool implements Tool {
 
     for (const d of raw) {
       // 忽略垃圾目录，但告诉用户"这里有 N 个被隐藏的常见目录"
-      if (d.isDirectory() && IGNORED_DIRS.has(d.name)) {
+      // ⚠️ 用 isIgnoredDirName 而不是 IGNORED_DIRS.has() ——
+      //   后者漏掉 venv311 / venv_old 这类带版本号的虚拟环境目录
+      if (d.isDirectory() && isIgnoredDirName(d.name)) {
         ignored++;
         continue;
       }

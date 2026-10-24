@@ -47,6 +47,52 @@ export const IGNORED_DIRS = new Set([
   '.notes',
 ]);
 
+/**
+ * 永远跳过的目录名（模式匹配）
+ *
+ * ⚠️ 为什么精确匹配不够 —— 2026-10-25 真实项目验证时当场抓到的：
+ *   拿插件去审计一个真实的 Python 项目（同时存在 venv311 / venv_old
+ *   两个虚拟环境），扫描 20000 文件的上限被【一个目录吃光】：
+ *
+ *     venv_old        19992 个文件（占 99.96%）
+ *     真正的项目代码   一个都没扫到
+ *
+ *   而 venv_old / venv311 这种【带版本号】的目录名，
+ *   IGNORED_DIRS 精确匹配一个都拦不住。
+ *
+ *   这不是理论问题 —— 它让「grep 全仓」直接失效，
+ *   agent 只能靠 glob 手动绕开，浪费轮次还容易漏文件。
+ *
+ *   实测：修之前 agent 自己在探索时也踩到了，
+ *   得主动说「venv 目录会造成干扰；我先只查看 src/ 目录」才绕过去。
+ */
+const IGNORED_DIR_PATTERNS: RegExp[] = [
+  /^venv[\w.-]*$/i, // venv / venv311 / venv_old / venv3.11
+  /^\.venv[\w.-]*$/i, // .venv / .venv311
+  /^env$/i, // 传统 Python 虚拟环境目录名
+  /^site-packages$/i,
+  /^__pypackages__$/i,
+  /^eggs$/i,
+  /^\.tox$/i,
+  /^\.nox$/i,
+  /^target$/i, // Rust 构建产物
+  /^vendor$/i, // PHP / Go 的第三方代码目录
+];
+
+/**
+ * 判断一个目录名是否应该被跳过
+ *
+ * ⚠️ 调用方一律用这个函数，不要直接 IGNORED_DIRS.has() ——
+ *   后者只认精确匹配，漏掉带版本号的虚拟环境目录。
+ */
+export function isIgnoredDirName(name: string): boolean {
+  if (IGNORED_DIRS.has(name)) return true;
+  for (const re of IGNORED_DIR_PATTERNS) {
+    if (re.test(name)) return true;
+  }
+  return false;
+}
+
 /** 扫描的文件数量上限（兜底，防止超大仓库把扩展卡死） */
 export const MAX_FILES_SCANNED = 20_000;
 
@@ -119,8 +165,8 @@ export function walkFiles(opts: WalkOptions): WalkResult {
     for (const entry of entries) {
       const name = entry.name;
 
-      // 目录级忽略
-      if (IGNORED_DIRS.has(name)) continue;
+      // 目录级忽略（必须用 isIgnoredDirName，精确匹配会漏掉 venv311 这类目录）
+      if (isIgnoredDirName(name)) continue;
 
       const abs = path.join(dir, name);
       if (abs.length > MAX_PATH_LENGTH) continue;

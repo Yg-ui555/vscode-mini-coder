@@ -99,4 +99,56 @@ describe('ContextBuilder', () => {
     expect(prompt).toContain('apply_patch');
     expect(prompt).toContain('run_shell');
   });
+
+  // ⭐⭐ 2026-10-25：system prompt 必须跟着【实际注册的工具】走
+  //
+  // 起因（真实踩坑）：
+  //   拿插件去审计真实项目时，跑完最后 agent 还是调了一次 record_note，
+  //   而只读模式根本没注册这个工具 → 工具不存在 → 白烧一轮 LLM 调用。
+  //
+  //   更严重的是它让【消融实验的结论不成立】：
+  //   消融的前提是"LLM 连有这个工具都不知道"，
+  //   但 prompt 里原本无条件写着 record_note 的用法 —— 对它的消融是漏的。
+  describe('⭐ prompt 与实际工具集保持一致', () => {
+    const READ_ONLY = ['read_file', 'grep', 'glob', 'list_dir'];
+
+    it('没有 record_note 时，prompt 不该再教用 record_note', () => {
+      const prompt = new ContextBuilder(null, null, READ_ONLY).buildSystemPrompt();
+      expect(prompt).not.toContain('record_note');
+      expect(prompt).not.toContain('错题本');
+    });
+
+    it('有 record_note 时，prompt 仍要教错题本（不能把项目特色砍没了）', () => {
+      const prompt = new ContextBuilder(null, null, ['read_file', 'record_note']).buildSystemPrompt();
+      expect(prompt).toContain('record_note');
+      expect(prompt).toContain('错题本');
+    });
+
+    it('只读模式不该教它改代码 / 跑测试', () => {
+      const prompt = new ContextBuilder(null, null, READ_ONLY).buildSystemPrompt();
+      expect(prompt).not.toContain('apply_patch');
+      expect(prompt).not.toContain('run_shell');
+      expect(prompt).not.toContain('跑测试');
+    });
+
+    it('toolNames 传 null（默认）时行为不变 —— 仍描述全部工具', () => {
+      const prompt = new ContextBuilder(null, null).buildSystemPrompt();
+      expect(prompt).toContain('record_note');
+      expect(prompt).toContain('apply_patch');
+      expect(prompt).toContain('run_shell');
+      expect(prompt).toContain('跑测试');
+    });
+
+    it('⭐ 工作流步骤数要跟着工具变（只读模式不该出现"改代码"步骤）', () => {
+      const full = new ContextBuilder(null, null).buildSystemPrompt();
+      const readOnly = new ContextBuilder(null, null, READ_ONLY).buildSystemPrompt();
+      const fullWorkflow = full.split('# 工作流（典型顺序）')[1] ?? '';
+      const readOnlyWorkflow = readOnly.split('# 工作流（典型顺序）')[1] ?? '';
+      // 只读模式的工作流应该更短
+      expect(readOnlyWorkflow.length).toBeLessThan(fullWorkflow.length);
+      expect(readOnlyWorkflow).not.toContain('apply_patch');
+      expect(readOnlyWorkflow).not.toContain('run_shell');
+      expect(readOnlyWorkflow).toContain('报告结果');
+    });
+  });
 });

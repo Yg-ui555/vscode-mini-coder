@@ -217,7 +217,7 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | 项 | 状态 |
 |---|---|
 | 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
-| 测试 | **451 个用例 / 28 个文件全绿**（2026-10-25，Phase 2 + Hook 机制后） |
+| 测试 | **461 个用例 / 29 个文件全绿**（2026-10-25，真实项目验证 + 3 个修复后） |
 | pass rate | **100%（23/23，DeepSeek-chat，2026-10-24，Phase 2 改造后）** |
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
@@ -237,9 +237,71 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | zhCommit | ✅ 已修 untracked 文件漏读 + `type` 命令不可靠 |
 | notes | ✅ **2026-10-21 重写**：`record_note` 工具写富条目（原因/踩坑/测试），索引页 + 去重 |
 | **Hook 机制** | ✅ **2026-10-25**：4 个生命周期点（PreToolUse / PostToolUse / Stop / UserPromptSubmit），声明式配置，子进程执行；内置「测试没过不许收工」 |
+| **真实项目验证** | ✅ **2026-10-25**：`npm run audit -- <路径>` 用本插件审一个真实中型项目（27 轮 / 55 次工具调用 / 0 写入），当场暴露 3 个真 bug 并修复 |
 | **Provider 降级熔断** | ✅ **2026-10-24**：三态熔断器（closed/open/halfOpen）+ 错误分类（400/404/422/abort 不降级） |
 | 缺失能力 | MCP、Todo 计划模式、子智能体 |
 | ⚠️ 评测集饱和 | **已破（2026-10-25）**：补了 5 道难题（18 → 23），并引入 **case 级目标修好率** + **工具消融实验** 两个更细的尺子。详见下一节 |
+
+---
+
+## 🆕 2026-10-25 真实项目验证：用插件审一个真的中型项目
+
+评测集里的 23 道题都是小沙箱（5-9 个文件），只能回答「agent 在小项目上能不能改对」，
+回答不了「这插件在**真实项目**上还顶不顶得住」。
+
+于是新增 `scripts/auditProject.js`（`npm run audit -- <路径>`）——
+把**同一套 AgentLoop + 同一套工具**指向真实项目跑一遍。
+默认给**严格只读**的工具集（read_file / grep / glob / list_dir），
+全程不碰用户项目一个字。
+
+### 被审对象与结果
+
+一个真实的中型 Python 项目（FastAPI + RAG + OCR + YOLO，含 `venv311`/`venv_old`
+两个虚拟环境，共 47229 个 `.py` 文件）：
+
+| 指标 | 值 |
+|---|---|
+| LLM 调用轮数 | 27 |
+| 工具调用次数 | 55 |
+| 耗时 | 116.6s |
+| token | 1,001,886 |
+| 写入用户项目 | **0** |
+
+它给出的健康度 **53/100**，并抓出了带 `文件:行号` 证据的真实问题。
+
+### ⭐ 最有价值的是它暴露的三个 bug
+
+**小沙箱永远测不出来，只有真实项目能暴露：**
+
+| # | 问题 | 后果 |
+|---|---|---|
+| 1 | `IGNORED_DIRS` 精确匹配，拦不住 `venv311`/`venv_old` | 扫描上限被一个目录吃光，**项目代码一个都没扫到** |
+| 2 | system prompt 无条件教 LLM 用 `record_note` | 只读模式下调不存在的工具；**「消融 record_note」一直是漏的** |
+| 3 | 扫描超限只报错不给建议 | 用户和 agent 都不知道下一步怎么办 |
+
+**修复前后（同一个真实项目）：**
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| 扫到文件 | 20000（**被截断**） | **1864（完整）** |
+| 扫描耗时 | 406ms | **138ms** |
+| `venv_old` 占用 | 19992 个（99.96%） | **0** |
+| **agent 能看见的项目代码** | **0 个** | **131 个** |
+
+**修法：**
+
+1. `fileScan.ts` 加 `isIgnoredDirName()` —— 精确名单 + **模式匹配**
+   （`venv*` / `.venv*` / `env` / `site-packages` / `__pypackages__` / `eggs` /
+   `.tox` / `.nox` / `target` / `vendor`）。
+   ⚠️ 模式不能太宽：`environment` / `envs` / `targets` 这类正常项目目录**不能误伤**。
+2. `ContextBuilder` 加第三个构造参数 `toolNames`，
+   **prompt 跟着实际注册的工具裁剪** —— 消融才是真的干净。
+3. `auditProject.js` 的扫描诊断直接报告「哪个目录吃光配额」。
+
+> 第 2 条连带修正了上一轮消融实验的一处不严谨表述：
+> 原文写「摘掉的工具 LLM 连有都不知道 —— 这才是干净的消融」，
+> 但 `record_note` 在 prompt 里是无条件出现的，**那次消融是漏的**。
+> 已同步更新 `eval/ABLATION.md` 和 `factory.ts` 的注释。
 
 ---
 

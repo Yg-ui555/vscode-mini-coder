@@ -53,6 +53,13 @@ export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegist
   //
   //   ⚠️ 摘掉的工具不会出现在给 LLM 的 schema 里，
   //     所以 LLM 连"有这个工具"都不知道 —— 这才是干净的消融。
+  //
+  // ⚠️ 2026-10-25 补：光摘 schema 还不算干净！
+  //   system prompt 原本【无条件】写着 record_note 的用法，
+  //   所以消融 record_note 时 LLM 其实还是被教过这个工具 —— 那次消融是漏的。
+  //   现在 ContextBuilder 接收实际注册的工具名，prompt 跟着一起裁剪
+  //   （见 src/agent/context.ts 的 toolNames 参数）。
+  //   其余工具 prompt 里本来就没提名字，一直是干净的。
   const exclude = new Set(opts?.exclude ?? []);
 
   const register = (tool: Tool) => {

@@ -25,6 +25,20 @@ npm run eval -- --ablate grep,run_shell    # 严格消融（见下面第 3 节�
 
 被摘掉的工具**不会出现在给 LLM 的 schema 里** —— 它连"有这个工具"都不知道。
 
+> ⚠️ **2026-10-25 修正一处不严谨的表述**
+>
+> 原文这里直接写"这才是干净的消融"。**对 `record_note` 并不成立** ——
+> system prompt 原本是【无条件】写着 record_note 的用法的，
+> 所以消融 record_note 时，LLM 其实还是被教过这个工具，那次消融是**漏的**。
+>
+> 这个漏洞是拿插件去审计一个**真实项目**时暴露的：
+> 只读模式下跑完，agent 仍然去调了一次 `record_note`（工具不存在，白烧一轮）。
+>
+> 现在 `ContextBuilder` 接收实际注册的工具名，prompt 跟着裁剪
+> （见 `src/agent/context.ts` 的 `toolNames` 参数）。
+> 其余工具（grep / run_shell / glob / read_file …）prompt 里本来就没出现过名字，
+> 一直是干净的 —— 之前的三组结论不受影响。
+
 ---
 
 ## 2. 三组结果

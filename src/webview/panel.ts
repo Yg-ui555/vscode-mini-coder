@@ -254,6 +254,7 @@ export class ChatPanel {
       const systemPrompt = new ContextBuilder(
         workspaceRoot,
         this._extensionUri.fsPath,
+        registry.names,
       ).buildSystemPrompt();
       this._messages.push({ role: 'system', content: systemPrompt });
       info(

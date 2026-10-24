@@ -273,7 +273,14 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     const loop = new AgentLoop(provider, registry, config.maxIterations, config.model);
 
     const messages: any[] = [
-      { role: 'system', content: new ContextBuilder(sandbox).buildSystemPrompt() },
+      {
+        role: 'system',
+        // ⭐ 把实际注册的工具名传给 ContextBuilder ——
+        //   消融模式下，prompt 不能还在教 LLM 用被摘掉的工具。
+        //   （2026-10-25 真实项目验证时发现：record_note 在 prompt 里
+        //    原本是【无条件】出现的，所以「消融 record_note」一直是漏的。）
+        content: new ContextBuilder(sandbox, null, registry.names).buildSystemPrompt(),
+      },
       { role: 'user', content: task.prompt },
     ];
 
