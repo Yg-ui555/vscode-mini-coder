@@ -15,3 +15,6 @@ eval/results-*.json
 
 # Mini-Coder 运行时存档（checkpoint 快照）—— 不要进用户仓库
 .mini-coder/
+
+# 临时文件（commit message 模板、调试产物等）
+.tmp/
