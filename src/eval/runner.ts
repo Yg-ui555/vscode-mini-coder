@@ -33,6 +33,7 @@ import { setNonInteractive } from '../agent/tools/approval';
 import { setEvalWorkspace } from './shim';
 import { setCheckpointEnabled } from '../agent/checkpoint/store';
 import { setToolOutputEnabled } from '../agent/toolOutputStore';
+import { setNotesRoot } from '../util/notesStore';
 import { addUsage, emptyUsage, estimateCost, CostBreakdown } from '../util/cost';
 
 import {
@@ -98,6 +99,13 @@ export interface EvalConfig {
    *   自动放行的只是「问不问用户」这一层。真要测权限行为得另开专门机制。
    */
   nonInteractive: boolean;
+  /**
+   * ⭐ 消融：把哪些工具摘掉
+   *
+   * 用来验证"这道题到底在测什么"。
+   * 摘掉的工具不会出现在给 LLM 的 schema 里 —— LLM 连它存在都不知道。
+   */
+  ablateTools?: string[];
 }
 
 /**
@@ -140,10 +148,40 @@ async function runCheck(
   return results;
 }
 
+/**
+ * 工具参数摘要
+ *
+ * ⭐ 为什么要摘要而不是原样存：
+ *   apply_patch 的参数里可能是一整段上千行的 diff，
+ *   原样存进 results.json 会让文件大到没法看。
+ *
+ * ⭐ 为什么要存（之前是空对象）：
+ *   消融实验暴露出来的真实问题 ——
+ *   轨迹里只有"调了 35 次 run_shell"，没有参数，
+ *   就没法判断它跑的是 `ls` 还是 `grep`：
+ *   前者说明 grep 这个【工具】确实可以省，
+ *   后者说明消融漏了（agent 绕道 shell 又把 grep 用上了）。
+ *   这两种结论完全相反，不能靠猜。
+ */
+function summarizeArgs(args: any): any {
+  if (!args || typeof args !== 'object') return {};
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v === 'string') {
+      out[k] = v.length > 300 ? `${v.slice(0, 300)}…（共 ${v.length} 字符）` : v;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 /** 跑一道题 */
 export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskResult> {
   const startedAt = Date.now();
   const sandbox = path.join(os.tmpdir(), `minicoder-eval-${task.id}-${Date.now()}`);
+  // ⭐ 错题本的落盘位置（沙箱外，理由见下面 setNotesRoot 那段注释）
+  const notesRoot = path.join(os.tmpdir(), `minicoder-eval-notes-${task.id}-${Date.now()}`);
 
   const base: TaskResult = {
     id: task.id,
@@ -197,6 +235,17 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     //   不要拿评测的数字当证据。
     setToolOutputEnabled(false);
 
+    // ⭐⭐ 错题本也写到【沙箱外】—— 2026-10-25 补上的漏网之鱼
+    //
+    //   理由和上面两个【完全一样】：错题本会在工作区下造出 .notes/ 目录，
+    //   listFiles() 会把它算成"agent 改了哪些文件"，污染 L4 回归检测。
+    //
+    //   实测踩到的坑：26 号对抗题有一条"仓库文件集合不许变"的守卫，
+    //   agent 顺手记了条错题本就把守卫干掉了 —— 而任务级判定还显示"通过"
+    //   （那条守卫在 baseline 也是挂的，失败原因被掩盖了）。
+    //   一次真实的越界行为差点从报告里消失。
+    setNotesRoot(notesRoot);
+
     const check = loadCheck(task);
 
     const makeCtx = (finalAnswer: string, toolTrace: ToolTrace[]): CheckContext => ({
@@ -216,7 +265,10 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     // ⭐ 评测沙箱必须和真实用户拿到【完全一样】的工具集
     //   否则评测出来的 pass rate 是失真的：题目做不出来可能只是因为
     //   沙箱里少了 grep，而不是模型不会。
-    const registry = createDefaultRegistry();
+    //
+    //   ⚠️ 消融模式是唯一的例外 —— 那是有意为之的对照实验，
+    //   目的是回答"这题到底在测什么"，不是测真实能力。
+    const registry = createDefaultRegistry({ exclude: config.ablateTools });
 
     const loop = new AgentLoop(provider, registry, config.maxIterations, config.model);
 
@@ -233,10 +285,10 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
       finalAnswer = await loop.run(messages, abort.signal, {
         onText: () => {},
         onToolCall: () => {},
-        onToolResult: (name, result) => {
+        onToolResult: (name, result, args) => {
           toolTrace.push({
             tool: name,
-            args: {},
+            args: summarizeArgs(args),
             isError: !!result.isError,
             preview: result.content.slice(0, 200),
           });
@@ -337,9 +389,14 @@ export async function runTask(task: TaskMeta, config: EvalConfig): Promise<TaskR
     try {
       fs.rmSync(sandbox, { recursive: true, force: true });
     } catch {}
+    // ⭐ 错题本也在沙箱外，一并清掉
+    try {
+      fs.rmSync(notesRoot, { recursive: true, force: true });
+    } catch {}
     setWorkspaceRoot(undefined);
     setEvalWorkspace(undefined);
     setCheckpointEnabled(true);
     setToolOutputEnabled(true);
+    setNotesRoot(undefined);
   }
 }

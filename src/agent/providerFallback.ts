@@ -286,7 +286,7 @@ export class FallbackChain<T> {
    * 依次尝试各个 provider，直到有一个成功
    *
    * @param operation 对单个 provider 的操作（可能是流式的）
-   * @param onAttempt 每���尝试后的回调（用于记日志 / 更新 UI）
+   * @param onAttempt 每次尝试后的回调（用于记日志 / 更新 UI）
    */
   async execute(
     operation: (provider: T, providerName: string) => Promise<any>,

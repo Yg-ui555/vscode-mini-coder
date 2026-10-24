@@ -49,8 +49,33 @@ export function todayFileName(): string {
   return `${y}-${m}-${d}.md`;
 }
 
+/**
+ * ⭐ 错题本根目录的覆盖（评测沙箱里用）
+ *
+ * 理由和 checkpoint 的沙箱处理【完全一样】
+ * （见 src/agent/checkpoint/store.ts 的 setCheckpointEnabled）：
+ *
+ *   错题本会在工作区下造出 `.notes/` 目录，
+ *   而评测的 listFiles() 不忽略任何目录，
+ *   会把它算成"agent 改了哪些文件" ——
+ *   污染 L4 回归检测的证据链。
+ *
+ *   实测踩到的坑：26 号对抗题有一条"仓库文件集合不许变"的守卫，
+ *   agent 记了一条错题本（.notes/2026-10-24.md）就把守卫干掉了，
+ *   而任务级判定还显示"通过"（因为那条守卫在 baseline 也是挂的）。
+ *   —— 差点让一次真实的越界行为从报告里消失。
+ *
+ *   所以：评测里把错题本写到【沙箱外】的临时目录，跑完删掉。
+ */
+let notesRootOverride: string | undefined;
+
+/** 设置错题本根目录（undefined = 跟着工作区走） */
+export function setNotesRoot(root: string | undefined): void {
+  notesRootOverride = root;
+}
+
 export function getNotesDir(workspaceRoot: string): string {
-  return path.join(workspaceRoot, '.notes');
+  return path.join(notesRootOverride ?? workspaceRoot, '.notes');
 }
 
 /** 渲染一条记录 */

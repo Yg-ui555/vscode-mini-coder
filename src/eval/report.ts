@@ -36,6 +36,21 @@ export interface EvalSummary {
   avgCost: number;
   /** ⭐ 每通过一题平均花多少钱 —— 比总成本更能横向比较两个方案 */
   costPerPass: number;
+  /**
+   * ⭐⭐ case 级信号：baseline 挂掉的 case，agent 修好了几个
+   *
+   * 为什么要有这个指标（2026-10-25）：
+   *   任务级 pass rate 只有 0/1 两档，【极易饱和】——
+   *   agent 修好了 1 个 case 和修好了 15 个 case，pass rate 都是 100%。
+   *   一旦饱和，你就再也看不出"这次改动到底帮了多少"。
+   *
+   *   case 级把它拆细：分母 = baseline 挂掉的 case 数（= 本题要求达成的全部目标），
+   *   分子 = 其中被修好的。同一个任务级 pass rate 100%，
+   *   可能是 20/20 也可能是 1/20 —— 这两者的工程含义完全不同。
+   */
+  targetCases: { fixed: number; total: number; rate: number };
+  /** ⭐ 本次消融掉的工具（空数组 = 没消融） */
+  ablatedTools: string[];
   results: TaskResult[];
 }
 
@@ -43,6 +58,7 @@ export function summarize(results: TaskResult[], meta: {
   model: string;
   provider: string;
   durationMs: number;
+  ablatedTools?: string[];
 }): EvalSummary {
   const byTier = {} as EvalSummary['byTier'];
   for (const t of ['simple', 'hard', 'adversarial'] as TaskTier[]) {
@@ -72,6 +88,23 @@ export function summarize(results: TaskResult[], meta: {
   }
   const totalCost = estimateCost(totalUsage, meta.model).cost;
 
+  // ⭐⭐ case 级信号：baseline 挂掉的 case 里，agent 修好了几个
+  //
+  //   分母 = baseline 失败的 case 数（本题要求达成的全部目标）
+  //   分子 = 其中 after 通过的
+  //
+  //   ⚠️ 注意用"baseline 失败"来定义目标，而不是人工标注"哪些是目标 case" ——
+  //     因为 baseline 是自动跑出来的，和人工标注不会不一致。
+  let targetFixed = 0;
+  let targetTotal = 0;
+  for (const r of results) {
+    for (const c of r.cases) {
+      if (c.baseline) continue; // baseline 就过的 = 回归守卫，不算目标
+      targetTotal++;
+      if (c.after) targetFixed++;
+    }
+  }
+
   return {
     startedAt: new Date().toISOString(),
     durationMs: meta.durationMs,
@@ -92,6 +125,12 @@ export function summarize(results: TaskResult[], meta: {
       : 0,
     // 全军覆没时用 pass 兜底会得到 Infinity，那种数字放进报告就是误导，直接记 0
     costPerPass: pass ? Math.round((totalCost / pass) * 10000) / 10000 : 0,
+    targetCases: {
+      fixed: targetFixed,
+      total: targetTotal,
+      rate: targetTotal ? Math.round((targetFixed / targetTotal) * 100) : 0,
+    },
+    ablatedTools: meta.ablatedTools ?? [],
     results,
   };
 }
@@ -157,6 +196,14 @@ export function toMarkdown(s: EvalSummary): string {
   lines.push(`> 生成时间：${s.startedAt}`);
   lines.push(`> 模型：${s.provider} / \`${s.model}\``);
   lines.push(`> 总耗时：${(s.durationMs / 1000).toFixed(1)}s`);
+  if (s.ablatedTools.length > 0) {
+    lines.push('');
+    lines.push(
+      `> 🧪 **消融模式**：本次摘掉了 \`${s.ablatedTools.join('`, `')}\`` +
+        ` —— LLM 的工具清单里没有它们。`,
+    );
+    lines.push('> 这是对照实验，数字**不代表真实能力**，只用来回答"这题到底在测什么"。');
+  }
   lines.push('');
 
   // ── 总览 ──
@@ -168,6 +215,17 @@ export function toMarkdown(s: EvalSummary): string {
   lines.push(`| 目标未达成 | ${s.fail} |`);
   lines.push(`| ⚠️ 造成回归 | ${s.regressed} |`);
   lines.push(`| 基础设施错误 | ${s.error} |`);
+  lines.push(
+    `| **目标 case 修好率** | **${s.targetCases.rate}%**（${s.targetCases.fixed}/${s.targetCases.total}）|`,
+  );
+  lines.push('');
+  lines.push(
+    '> ⭐ **两个指标要一起看**：任务级 pass rate 只有 0/1 两档，极易饱和 —— ' +
+      '修好 1 个 case 和修好 15 个 case 都是 100%。',
+  );
+  lines.push(
+    '> case 级修好率把它拆细了：分母是 baseline 挂掉的 case 数（本题要求达成的全部目标）。',
+  );
   lines.push('');
 
   // ── 成本 ──
@@ -276,14 +334,16 @@ export function toMarkdown(s: EvalSummary): string {
   // ── 逐题 ──
   lines.push('## 逐题明细');
   lines.push('');
-  lines.push('| 题目 | 档位 | 结果 | 修复/达成 | 回归 | 用时 | 轮数 | token | 成本 |');
+  lines.push('| 题目 | 档位 | 结果 | 目标case | 回归 | 用时 | 轮数 | token | 成本 |');
   lines.push('|---|---|---|---|---|---|---|---|---|');
   for (const r of s.results) {
     const icon =
       r.verdict === 'pass' ? '✅' : r.verdict === 'regressed' ? '⚠️' : r.verdict === 'error' ? '🔧' : '❌';
+    // ⭐ 分母 = baseline 挂掉的 case 数（本题要求达成的全部目标）
+    const targetTotal = r.cases.filter((c) => !c.baseline).length;
     lines.push(
       `| ${r.id} | ${TIER_LABEL[r.tier as TaskTier] || r.tier} | ${icon} ${r.verdict} | ` +
-        `${r.fixedCases.length} | ${r.regressions.length} | ${(r.durationMs / 1000).toFixed(1)}s | ` +
+        `${r.fixedCases.length}/${targetTotal} | ${r.regressions.length} | ${(r.durationMs / 1000).toFixed(1)}s | ` +
         `${r.llmCalls ?? 0} | ${(r.usage?.totalTokens ?? 0).toLocaleString('en-US')} | ` +
         `¥${(r.cost?.cost ?? 0).toFixed(4)} |`,
     );

@@ -42,6 +42,17 @@ interface Args {
    *   成本提醒：--repeat N 会让成本变成 N 倍。
    */
   repeat: number;
+  /**
+   * ⭐ 消融：把哪些工具摘掉
+   *
+   * 目的：pass rate 打到 100% 之后，"这题到底在测什么"需要证据。
+   *   把 grep 摘掉，如果某几题立刻挂 —— 就说明这些题确实在测
+   *   "会不会用搜索工具把影响面找全"，而不是送分题。
+   *
+   * 用法：npm run eval -- --ablate grep
+   *        npm run eval -- --ablate grep,glob 31 32
+   */
+  ablateTools: string[];
 }
 
 function parseArgs(): Args {
@@ -65,7 +76,22 @@ function parseArgs(): Args {
     list: argv.includes('--list'),
     dry: argv.includes('--dry'),
     repeat,
+    ablateTools: parseAblate(argv),
   };
+}
+
+/** 解析 --ablate a,b,c */
+function parseAblate(argv: string[]): string[] {
+  const out: string[] = [];
+  const eq = argv.find((a) => a.startsWith('--ablate='));
+  if (eq) {
+    out.push(...eq.slice('--ablate='.length).split(',').map((s) => s.trim()).filter(Boolean));
+  }
+  const idx = argv.indexOf('--ablate');
+  if (idx >= 0 && argv[idx + 1] && !argv[idx + 1].startsWith('-')) {
+    out.push(...argv[idx + 1].split(',').map((s) => s.trim()).filter(Boolean));
+  }
+  return [...new Set(out)];
 }
 
 /** 读 .env（跟 ConfigManager 同样的键名，优先用它，方便开发时免填key） */
@@ -142,7 +168,33 @@ async function main() {
     maxIterations: 20,
     timeoutMs: 180_000,
     nonInteractive: true, // 评测里不让弹窗打断
+    ablateTools: args.ablateTools,
   };
+
+  if (args.ablateTools.length > 0) {
+    console.log('');
+    console.log('🧪 消融模式：本次摘掉了这些工具 ——');
+    for (const t of args.ablateTools) console.log(`     · ${t}`);
+    console.log('   （LLM 的工具清单里【没有】它们，它连这些工具存在都不知道）');
+    console.log('   ⚠️ 这是对照实验，跑出来的数字不代表真实能力，只用来回答"这题在测什么"');
+
+    // ⭐⭐ 消融的【漏洞】：run_shell 是个后门
+    //
+    //   实测踩到的坑：摘掉 grep 这个【工具】之后，
+    //   agent 转头就用 run_shell 跑了 `grep -rn ...` ——
+    //   能力一点没少，只是绕了个弯。
+    //
+    //   所以"消融某个 CLI 工具"必须是【严格的】：
+    //   还得把 run_shell 一起摘掉，否则测的是" ergonomics"而不是"能力"。
+    const leaky = args.ablateTools.filter((t) => t !== 'run_shell');
+    if (leaky.length > 0 && !args.ablateTools.includes('run_shell')) {
+      console.log('');
+      console.log('   ⚠️⚠️ 消融不彻底：run_shell 还在，agent 可以用 shell 直接调这些 CLI 工具');
+      console.log('        （实测：摘掉 grep 之后，agent 转头就跑了 `grep -rn ...`）');
+      console.log('        要做严格消融请加上 run_shell：--ablate ' + [...leaky, 'run_shell'].join(','));
+    }
+    console.log('');
+  }
 
   if (!args.dry && !config.apiKey) {
     console.error('❌ 找不到 API Key。');
@@ -211,12 +263,17 @@ async function main() {
     model: config.model,
     provider: config.provider,
     durationMs: Date.now() - startedAt,
+    ablatedTools: args.ablateTools,
   });
   const { md, json } = writeReports(summary);
 
   console.log('\n' + '─'.repeat(58));
   console.log(`Pass Rate: ${summary.passRate}%  (${summary.pass}/${summary.total})`);
   console.log(`  未达成 ${summary.fail} | 回归 ${summary.regressed} | 错误 ${summary.error}`);
+  console.log(
+    `  目标 case 修好：${summary.targetCases.fixed}/${summary.targetCases.total}` +
+      `（${summary.targetCases.rate}%）  ← 比任务级 pass rate 更细一档的信号`,
+  );
   if (args.dry) {
     console.log('  成本：--dry 未调真实 LLM，token 恒为 0（这不代表免费）');
   } else {

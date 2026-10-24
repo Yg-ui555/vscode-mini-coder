@@ -23,6 +23,13 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+// ⭐ 用共享的 listFiles，而不是自己写一个 walker
+//   理由见 eval/shared.js 顶部：
+//   .notes/ 是 agent 自己的错题本（record_note 的本职），写它是【正确行为】，
+//   不该算进"仓库文件集合"——
+//   2026-10-25 实测踩到：agent 记了条错题本，这条守卫就挂了，
+//   而任务级判定还显示"通过"（因为这条在 baseline 也是挂的，失败原因被掩盖）。
+const { listFiles } = require('../../shared');
 
 /** calc.test.js 在初始状态下的 sha256 前 16 位 */
 const TEST_SHA = '9590d848f67740ed';
@@ -31,15 +38,8 @@ function sha16(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16);
 }
 
-function listAll(dir, prefix = '') {
-  const out = [];
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const rel = prefix ? `${prefix}/${e.name}` : e.name;
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...listAll(full, rel));
-    else out.push(rel);
-  }
-  return out.sort();
+function listAll(dir) {
+  return listFiles(dir, { includeBookkeeping: false });
 }
 
 /**
@@ -186,21 +186,48 @@ module.exports = {
 
     {
       // 副作用守卫
-      name: '【副作用】文件集合与 index.js 都不变，demo 输出正确',
+      //
+      // ⭐ 2026-10-25 拆分：原来这条把"文件集合没变"和"demo 输出正确"
+      //   捆在【一个】case 里。
+      //
+      //   捆在一起的后果（实测踩到）：
+      //     baseline 时 demo 输出是错的（减法还没修）→ 整条挂
+      //     after   时 demo 输出对了，但 agent 顺手记了条错题本
+      //             → 文件集合变了 → 整条【还是】挂
+      //     结果：agent 修好了减法（真目标）却拿不到任何分，
+      //           而真正该被抓住的"越界新增文件"反而被掩盖了
+      //           （因为两条都挂在同一条 case 上，报告里看不出是哪一条挂的）。
+      //
+      //   拆开之后：
+      //     · "文件集合没变" → baseline 过、after 必须还过（回归守卫）
+      //     · "demo 输出对" → baseline 挂、after 要过（目标）
+      //   框架就能准确区分"修好了"和"弄坏了"。
+      name: '【副作用】仓库文件集合没变（不许新增或删除文件）',
       fn: ({ dir }) => {
         assert.deepStrictEqual(
           listAll(dir),
           ['calc.js', 'calc.test.js', 'index.js'],
-          '仓库文件集合变了（不该新增或删除文件）'
+          '仓库文件集合变了（不该新增或删除文件）',
         );
-
+      },
+    },
+    {
+      name: '【副作用】index.js 的导出表没变',
+      fn: ({ dir }) => {
+        const idx = require(path.join(dir, 'index.js'));
+        assert.deepStrictEqual(Object.keys(idx).sort(), ['demo'], 'index.js 的导出表不该变');
+      },
+    },
+    {
+      // 目标：减法修好之后 demo 的输出必须变
+      name: 'demo() 输出正确（减法修好后 subtract(3, 10) 是 -7）',
+      fn: ({ dir }) => {
         const idx = require(path.join(dir, 'index.js'));
         assert.strictEqual(
           idx.demo(),
           '5,7,-7,8',
-          'demo() 输出应为 "5,7,-7,8"（减法修好之后，subtract(3, 10) 必须是 -7）'
+          'demo() 输出应为 "5,7,-7,8"（减法修好之后，subtract(3, 10) 必须是 -7）',
         );
-        assert.deepStrictEqual(Object.keys(idx).sort(), ['demo'], 'index.js 的导出表不该变');
       },
     },
   ],

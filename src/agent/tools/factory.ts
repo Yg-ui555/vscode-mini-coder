@@ -15,6 +15,7 @@
  */
 
 import { ToolRegistry } from './registry';
+import { Tool } from './base';
 import { ReadFileTool } from './readFile';
 import { WriteFileTool } from './writeFile';
 import { ApplyPatchTool } from './applyPatch';
@@ -35,23 +36,44 @@ import { ReadOnlyToolNames } from './meta';
  *   理由二：工具顺序稳定 → prompt 前缀稳定 → 能命中 provider 端的
  *           prompt cache，直接省钱。
  */
-export function createDefaultRegistry(): ToolRegistry {
+export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegistry {
   const registry = new ToolRegistry();
 
+  // ⭐ 消融（ablation）：把指定工具【摘掉】，其余照常注册
+  //
+  //   为什么需要这个开关：
+  //     pass rate 打到 100% 之后，"这题到底在测什么"就成了一个问题。
+  //     光看"全过"什么都证明不了 —— 可能题目太简单，
+  //     也可能 agent 恰好用了某个关键工具。
+  //
+  //   消融实验给出的答案更硬：
+  //     把 grep 摘掉，如果某几题立刻挂 —— 说明这几题确实在测
+  //     "会不会用搜索工具把影响面找全"，而不是送分题。
+  //     这比"我全过了"有说服力得多。
+  //
+  //   ⚠️ 摘掉的工具不会出现在给 LLM 的 schema 里，
+  //     所以 LLM 连"有这个工具"都不知道 —— 这才是干净的消融。
+  const exclude = new Set(opts?.exclude ?? []);
+
+  const register = (tool: Tool) => {
+    if (exclude.has(tool.name)) return;
+    registry.register(tool);
+  };
+
   // 只读组：无副作用，自动放行，可并行
-  registry.register(new ReadFileTool());
-  registry.register(new GrepTool());
-  registry.register(new GlobTool());
-  registry.register(new ListDirTool());
-  registry.register(new RecordNoteTool());
+  register(new ReadFileTool());
+  register(new GrepTool());
+  register(new GlobTool());
+  register(new ListDirTool());
+  register(new RecordNoteTool());
 
   // 写入组：有副作用，需要确认 + checkpoint
-  registry.register(new ApplyPatchTool());
-  registry.register(new WriteFileTool());
-  registry.register(new RestoreFileTool());
+  register(new ApplyPatchTool());
+  register(new WriteFileTool());
+  register(new RestoreFileTool());
 
   // 执行组：能力最大，破坏性最高
-  registry.register(new RunShellTool());
+  register(new RunShellTool());
 
   return registry;
 }

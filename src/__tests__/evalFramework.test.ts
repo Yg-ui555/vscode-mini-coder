@@ -19,6 +19,7 @@ import { setNonInteractive } from '../agent/tools/approval';
 import { loadAllTasks, loadCheck, copyDir, listFiles } from '../eval/types';
 import { clearSandboxCache } from '../eval/runner';
 import { toMarkdown, summarize } from '../eval/report';
+import { createDefaultRegistry } from '../agent/tools/factory';
 
 let tmp: string;
 
@@ -84,14 +85,45 @@ describe('沙箱缓存清理', () => {
 });
 
 describe('任务加载', () => {
-  it('全部 18 道题都能被加载且结构正确', () => {
+  it('全部 23 道题都能被加载且结构正确', () => {
     const tasks = loadAllTasks();
-    expect(tasks.length).toBe(18);
+    // ⚠️ 数量是【故意写死】的 —— 加题/删题时这里必须跟着改，
+    //    这样"我以为加了题但其实没加载上"会立刻被测出来。
+    expect(tasks.length).toBe(23);
 
     for (const t of tasks) {
       expect(t.id).toMatch(/^\d\d-/);
       expect(t.prompt.length).toBeGreaterThan(50); // task.md 不能太短
       expect(fs.existsSync(t.checkPath)).toBe(true);
+    }
+  });
+
+  it('⭐ Phase 2 的五道新题都在（真实 tsc / 长链条 / 跨模块契约 / 性能不变 / 静默破坏）', () => {
+    const ids = new Set(loadAllTasks().map((t) => t.id));
+    for (const id of [
+      '31-hard-real-tsc-build',
+      '32-hard-long-chain-migration',
+      '33-hard-cross-module-contract',
+      '34-hard-perf-keep-behavior',
+      '35-adversarial-silent-api-break',
+    ]) {
+      expect(ids.has(id), `缺少 Phase 2 新题 ${id}`).toBe(true);
+    }
+  });
+
+  it('⭐ 五道新题都配了标准答案（oracle），证明题目有解', () => {
+    const root = path.resolve(__dirname, '..', '..', 'eval', 'oracles');
+    for (const id of [
+      '31-hard-real-tsc-build',
+      '32-hard-long-chain-migration',
+      '33-hard-cross-module-contract',
+      '34-hard-perf-keep-behavior',
+      '35-adversarial-silent-api-break',
+    ]) {
+      expect(
+        fs.existsSync(path.join(root, `${id}.solution.js`)),
+        `缺少标准答案 ${id}.solution.js`,
+      ).toBe(true);
     }
   });
 
@@ -193,6 +225,30 @@ describe('工具函数', () => {
   });
 });
 
+describe('工具消融（ablation）', () => {
+  it('⭐ 摘掉的工具不出现在注册表里', () => {
+    const full = createDefaultRegistry();
+    expect(full.names).toContain('grep');
+
+    const ablated = createDefaultRegistry({ exclude: ['grep'] });
+    expect(ablated.names).not.toContain('grep');
+    // 其余工具一个都不能少（消融是"摘掉一个"，不是"重写一套"）
+    expect(ablated.names).toContain('read_file');
+    expect(ablated.names).toContain('glob');
+    expect(ablated.names).toContain('apply_patch');
+    expect(ablated.names).toContain('run_shell');
+    expect(ablated.names.length).toBe(full.names.length - 1);
+  });
+
+  it('⭐⭐ 消融的工具连 schema 都不给 LLM（LLM 不知道它存在）', () => {
+    const ablated = createDefaultRegistry({ exclude: ['grep', 'glob'] });
+    const names = ablated.schemas.map((s: any) => s.function.name);
+    expect(names).not.toContain('grep');
+    expect(names).not.toContain('glob');
+    expect(names.length).toBe(7);
+  });
+});
+
 describe('报告生成', () => {
   const mkResult = (over: any = {}) => ({
     id: '01-test', tier: 'simple', title: 'test', verdict: 'pass' as const,
@@ -216,6 +272,43 @@ describe('报告生成', () => {
     expect(s.pass).toBe(0); // 回归不算通过
     expect(s.regressed).toBe(1);
     expect(toMarkdown(s)).toContain('回归明细');
+  });
+
+  it('⭐⭐ case 级目标修好率：修好 1 个和修好 15 个不能都是 100%', () => {
+    // 任务级 pass rate 只有 0/1 两档，极易饱和。
+    // case 级指标把它拆细：分母 = baseline 挂掉的 case 数。
+    const mk = (fixed: number, targetTotal: number) =>
+      mkResult({
+        cases: [
+          // 3 个 baseline 就过的（回归守卫）
+          { name: 'guard1', baseline: true, after: true },
+          { name: 'guard2', baseline: true, after: true },
+          // targetTotal 个 baseline 挂的，其中 fixed 个被修好
+          ...Array.from({ length: targetTotal }, (_, i) => ({
+            name: `t${i}`,
+            baseline: false,
+            after: i < fixed,
+          })),
+        ],
+      });
+
+    const s = summarize([mk(1, 15), mk(15, 15)], {
+      model: 'm', provider: 'p', durationMs: 1000,
+    });
+
+    expect(s.passRate).toBe(100); // 任务级：两题都"通过"，看不出差别
+    expect(s.targetCases.total).toBe(30);
+    expect(s.targetCases.fixed).toBe(16);
+    expect(s.targetCases.rate).toBe(53); // case 级：53% vs 100%，差别一眼看出来
+    expect(toMarkdown(s)).toContain('目标 case 修好率');
+  });
+
+  it('⭐ 消融掉的工具会写进报告（别让人误以为是真实能力）', () => {
+    const s = summarize([mkResult()], {
+      model: 'm', provider: 'p', durationMs: 1000, ablatedTools: ['grep'],
+    });
+    expect(s.ablatedTools).toEqual(['grep']);
+    expect(toMarkdown(s)).toContain('消融模式');
   });
 
   it('失败归类能识别"工具报错后未纠正"', () => {
