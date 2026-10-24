@@ -488,6 +488,39 @@ it('prompt 长度必须在预算内', () => {
 
 > Phase 1 解决的是"能不能测量"。Phase 2 解决的是"真实用户用的时候会不会崩、会不会烧钱"。
 
+### Phase 2 进度（2026-10-25）
+
+| 任务 | 状态 | 产出 |
+|---|---|---|
+| 2.0 评测集扩容（Phase 2 的**前置**） | ✅ 完成 | 题库 18 → **23** 题，新增 5 道真难题（真实 tsc / 长链条迁移 / 跨模块契约 / 性能不变 / 静默破坏），每题配标准答案证明有解 |
+| 2.1 Provider 熔断降级 | ✅ 完成 | `src/agent/providerFallback.ts`（三态熔断器 + 错误分类） |
+| 2.2 Hook 机制 | ✅ 完成 | `src/agent/hooks/` —— 4 个生命周期点 + 声明式配置 + 内置 Stop hook |
+| 2.3 Todo / 计划模式 | ⬜ 未开始 | |
+| 2.4 上下文预算升级 | ⬜ 未开始 | |
+
+**⚠️ 关于"pass rate 饱和"这件事，实测结论（别自欺欺人）：**
+
+补了 5 道难题后，任务级 pass rate **仍然是 100%**（28/28 目标 case 修好，0 回归）。
+当前 agent（deepseek-chat + 这套工具）确实够强 —— 这些题难，但没难到做不出来。
+
+所以本轮做了两件事来**恢复反馈信号**：
+
+1. **case 级「目标 case 修好率」**（`src/eval/report.ts`）
+   任务级 pass rate 只有 0/1 两档，修好 1 个 case 和修好 15 个 case 都是 100%。
+   新指标把分母换成"baseline 挂掉的 case 数"，细一档。
+
+2. **工具消融实验**（`npm run eval -- --ablate grep`）
+   把指定工具从注册表里摘掉（**LLM 的工具清单里也没有它**），
+   用来回答"这道题到底在测什么"、"这个工具到底有没有用"。
+
+> 消融跑出来的第一个发现就很有价值：
+> **摘掉 grep 这个工具，agent 依然 28/28 全过，成本反而降了 27%。**
+> ——说明"grep"这个工具在当前形态下可能是在帮倒忙（agent 用 list_dir + shell 就够了，
+> 反而多花轮次去搜）。**这条要用 `--repeat 3` 复跑确认**，
+> 因为单次运行的噪声能到 ±36%（见 `src/eval/statistics.ts` 的方差数据）。
+
+---
+
 ### 任务 2.1：Provider 熔断降级（1 周）
 
 **为什么这是 BYOK 产品的生死线**：
@@ -622,6 +655,29 @@ Stop hook 跑 `npm test` → 退出码非 0 →
 - 用户写一个 `hooks.json` 让 Stop 时跑 `npm test`
 - agent 改坏代码后试图收工 → 被 hook 打回 → 自动修复
 - hook 命令报错（脚本不存在）→ 不阻断主流程，只记日志
+
+**✅ 已完成（2026-10-25）** —— 三条验收标准全部满足，25 个测试用例覆盖：
+
+| 产出 | 位置 |
+|---|---|
+| 4 个生命周期点的类型与配置格式 | `src/agent/hooks/types.ts` / `config.ts` |
+| 子进程执行器（stdin 传 JSON、退出码语义、超时） | `src/agent/hooks/runner.ts` |
+| 调度器（阻断判定、Stop 防死循环上限 8 次） | `src/agent/hooks/manager.ts` |
+| 接进 agent 主循环 | `src/agent/loop.ts` 的 4 个接入点 |
+| 内置 Stop hook（复用 autoTest 的测试执行） | `src/extension.ts` + 设置项 `mini-coder.hooks.stopAutoTest` |
+| `/doctor` 状态展示 | `src/commands/doctor.ts` |
+
+**实测踩到的坑（值得记）**：
+
+> 「命令不存在」这个判定，一开始是靠**匹配 shell 的报错文本**做的 ——
+> 结果在 Windows 上完全失效：`cmd.exe` 的报错是中文（"不是内部或外部命令"）
+> 而且是 **GBK 编码**的，Node 按 UTF-8 解码出来是一串乱码，正则永远匹配不上。
+>
+> 而"命令不存在"恰恰是**最需要被正确识别**的情况 ——
+> 认错了的后果是"用户还没配好 hooks.json，agent 就被无限打回"。
+>
+> **改成主动探测**：用 `where`（Windows）/ `command -v`（POSIX）
+> 问一句"这个可执行文件在不在"，而且**只在失败时才探测**（成功的命令不多花一次进程）。
 
 ---
 

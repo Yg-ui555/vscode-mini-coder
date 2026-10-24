@@ -4,6 +4,81 @@
 
 ---
 
+## [0.3.0] — 2026-10-25
+
+**Phase 2：Hook 机制（4 个生命周期点）+ 评测集扩容到 23 题 + 消融实验**
+
+这一轮解决两个问题：
+**①「自动跑测试」只能做一件事 → 升级成可扩展的 hook 机制；
+②评测集 pass rate 已经 100% 饱和 → 补 5 道真难题 + 引入更细的信号。**
+
+### 新增
+
+- **Hook 机制**（`src/agent/hooks/`）：4 个生命周期点 —— `PreToolUse`（可否决工具调用）、
+  `PostToolUse`（通知）、`Stop`（**测试没过就不许收工**）、`UserPromptSubmit`（注入上下文）。
+  声明式配置（工作区 `.vscode/mini-coder-hooks.json`），子进程执行，stdin 传 JSON 上下文。
+  借鉴 goose 的 `hooks/mod.rs`（12 个点取其中最有价值的 4 个）。
+- **内置 Stop hook**：设置项 `mini-coder.hooks.stopAutoTest` 开启，
+  复用 `autoTest` 的测试执行逻辑 —— agent 说"我做完了"时先跑一遍项目测试，
+  没过就把它打回去继续干（连续 8 次强制放行，防死循环烧钱）。
+- **5 道新题**（18 → 23）：`31-hard-real-tsc-build`（真跑 `tsc --noEmit`）、
+  `32-hard-long-chain-migration`（5 个调用点 / 4 种调用形状 / 藏在 re-export 后面）、
+  `33-hard-cross-module-contract`（内部契约变、对外契约不许变）、
+  `34-hard-perf-keep-behavior`（check.js 内冻结原始实现做 16 组差分对拍）、
+  `35-adversarial-silent-api-break`（加新功能时改坏上游依赖的"不抛异常"契约）。
+  每题都配了标准答案（`eval/oracles/`），证明题目**有解**。
+- **工具消融实验**（`npm run eval -- --ablate grep`）：把指定工具从注册表里摘掉
+  （LLM 连它存在都不知道），用来回答"这道题到底在测什么"。
+- **case 级「目标 case 修好率」**：任务级 pass rate 只有 0/1 两档，极易饱和 ——
+  修好 1 个 case 和修好 15 个 case 都是 100%。新增指标把分母换成
+  "baseline 挂掉的 case 数"，细一档的信号。
+- `/doctor` 新增「Hook 机制」状态项：配置在哪、几个事件点、配置有没有语法问题。
+
+### 修复
+
+- ⭐⭐ **评测沙箱里错题本会污染 L4 回归检测**（`src/eval/runner.ts` + `src/util/notesStore.ts`）
+  —— agent 调 `record_note` 会在工作区下造出 `.notes/` 目录，
+  而 `listFiles()` 不忽略任何目录 → 被算成"agent 改了哪些文件"。
+  理由和当初关掉 checkpoint **完全一样**，但当时漏了它。
+  实测后果：26 号对抗题的"仓库文件集合不许变"守卫被 agent 的一条错题本干掉，
+  而任务级判定还显示"通过"（那条守卫在 baseline 也是挂的，失败原因被掩盖）——
+  **一次真实的越界行为差点从报告里消失**。
+  现在评测把错题本写到**沙箱外**的临时目录，跑完删掉。
+- `eval/tasks/26-*/check.js`：
+  ① 文件集合断言改用共享的 `listFiles()`（自动忽略 `.notes/` `.mini-coder/` 簿记目录，
+  和 18/27 号题统一口径）；
+  ② 把"文件集合没变"和"demo 输出正确"**从捆在一起拆成两条** ——
+  捆在一起会让其中一条的失败掩盖另一条，框架就分不清"修好了"和"弄坏了"。
+- `src/agent/hooks/manager.ts`：内置 Stop 检查阻断时**提前 return**，
+  绕过了"连续阻断上限"的计数 → 内置 hook 能无限打回，上限形同虚设。
+- `src/agent/hooks/runner.ts`：Windows 的 `cmd.exe` 报错是 **GBK 编码**的，
+  Node 按 UTF-8 解码出来是乱码，靠文本匹配**根本认不出"命令不存在"**
+  （实测：正则永远匹配不上）。改为主动探测可执行文件是否存在
+  （Windows `where` / POSIX `command -v`），且探测只在失败时才做。
+- `src/eval/report.ts` / `src/agent/providerFallback.ts` / `src/eval/statistics.ts`：
+  三处历史遗留的乱码字符。
+- `eval/tasks/35-*/check.js`：`loadMod` 清 require 缓存后，被测模块和它依赖的模块
+  会变成两个不同实例，基于计数/共享状态的断言读到 0。改为"先加载被依赖模块"。
+
+### 实测
+
+- **全量 23 题**：Pass Rate 100%（23/23），**0 回归**，目标 case 修好率见
+  [`eval/RESULTS.md`](eval/RESULTS.md)
+- 5 道新题单独跑：**28/28 目标 case 修好，0 回归**（逐 case 明细见报告）
+  —— 题目不是送分题，但当前 agent 也确实够强。
+- 新题单题均摊成本 ¥0.31，是老题均值（¥0.14）的 2.2 倍 —— 区分度从 pass rate
+  转移到了**轮数 / 成本**维度。
+- **消融实验**（`eval/ABLATION.md`）：三组配置（全量 / 摘 grep / 摘 grep+run_shell）
+  **全部 28/28**。三个诚实的结论：
+  ① 这几道题不测"会不会用 grep"（沙箱只有 5-9 个文件，通读就够）；
+  ② ⭐ 消融有**漏洞**：`run_shell` 是后门 —— 摘掉 grep 后 agent 转头就跑了
+  shell 版 grep（**这也是为什么评测轨迹必须记工具参数**）；
+  ③ ⭐⭐ 就算一次命令都跑不了，agent 依然全过 —— 这几道题考的是
+  **代码理解 + 推理**，不是工具使用。
+- 测试套件 419 → **451 个用例全绿**（新增 32 例，其中 hook 机制 26 例）。
+
+---
+
 ## [0.2.0] — 2026-10-24
 
 **Phase 1：把「半成品」补完 + 建立可信的测量能力**
