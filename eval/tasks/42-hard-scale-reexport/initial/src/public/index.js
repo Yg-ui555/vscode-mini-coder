@@ -1,0 +1,85 @@
+/**
+ * public 层汇总 —— 对外承诺稳定性的那一层。
+ *
+ * ⚠️ 显式列出对外暴露的符号，而不是整个 require 出去 ——
+ *    免得内部实现不小心就泄漏成公开 API。
+ */
+const internal = require('../internal');
+const m_exports = require('./exports');
+const m_openapi = require('./openapi');
+const m_permissions = require('./permissions');
+const m_ratelimit = require('./ratelimit');
+const m_webhooks = require('./webhooks');
+const m_analytics = require('./analytics');
+
+module.exports = {
+  truncate: internal.truncate,
+  padStart: internal.padStart,
+  slugify: internal.slugify,
+  capitalize: internal.capitalize,
+  trim: internal.trim,
+  repeat: internal.repeat,
+  formatBytes: internal.formatBytes,
+  clamp: internal.clamp,
+  parseRange: internal.parseRange,
+  roundTo: internal.roundTo,
+  isInteger: internal.isInteger,
+  toPercent: internal.toPercent,
+  formatDate: internal.formatDate,
+  parseDate: internal.parseDate,
+  addDays: internal.addDays,
+  diffDays: internal.diffDays,
+  startOfDay: internal.startOfDay,
+  chunk: internal.chunk,
+  groupBy: internal.groupBy,
+  unique: internal.unique,
+  flatten: internal.flatten,
+  first: internal.first,
+  last: internal.last,
+  pick: internal.pick,
+  omit: internal.omit,
+  deepMerge: internal.deepMerge,
+  get: internal.get,
+  has: internal.has,
+  truncateWords: internal.truncateWords,
+  wordCount: internal.wordCount,
+  similarity: internal.similarity,
+  normalizeSpace: internal.normalizeSpace,
+  levenshtein: internal.levenshtein,
+  joinPath: internal.joinPath,
+  extname: internal.extname,
+  basename: internal.basename,
+  dirname: internal.dirname,
+  simpleHash: internal.simpleHash,
+  stableStringify: internal.stableStringify,
+  safeParse: internal.safeParse,
+  safeStringify: internal.safeStringify,
+  hexToRgb: internal.hexToRgb,
+  rgbToHex: internal.rgbToHex,
+  parseQuery: internal.parseQuery,
+  buildQuery: internal.buildQuery,
+  escapeRegExp: internal.escapeRegExp,
+  matchAll: internal.matchAll,
+  legacyTruncate: internal.legacyTruncate,
+  legacyPadStart: internal.legacyPadStart,
+  routeOf: internal.routeOf,
+  joinRoute: internal.joinRoute,
+  cacheGet: internal.cacheGet,
+  cacheSet: internal.cacheSet,
+  cacheClear: internal.cacheClear,
+  withLock: internal.withLock,
+  validatePayload: internal.validatePayload,
+  paginate: internal.paginate,
+  serialize: internal.serialize,
+  describeError: internal.describeError,
+  featureFlags: internal.featureFlags,
+  enableFeature: internal.enableFeature,
+  publicVersion: m_exports.publicVersion,
+  describeExports: m_exports.describeExports,
+  openApiSpec: m_openapi.openApiSpec,
+  can: m_permissions.can,
+  rateLimitKey: m_ratelimit.rateLimitKey,
+  signPayload: m_webhooks.signPayload,
+  trackEvent: m_analytics.trackEvent,
+  readEvents: m_analytics.readEvents,
+};

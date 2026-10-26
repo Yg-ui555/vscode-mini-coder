@@ -1,0 +1,5 @@
+{
+  "name": "@wxu/app",
+  "version": "0.9.0",
+  "main": "src/index.js"
+}

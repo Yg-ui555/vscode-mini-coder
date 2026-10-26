@@ -34,8 +34,74 @@ import { loadAllTasks, loadCheck, copyDir, evalRoot, TaskMeta } from './types';
 
 interface Oracle {
   taskId?: string;
+  /**
+   * 这道题【标准回复】。
+   *
+   * ⭐ 为什么需要这个通道（2026-10-26）
+   *
+   *   有一类题考的不是"代码改对没有"，而是"【回复】说清楚没有"——
+   *   比如 21（用户说"优化一下"但没说优化哪方面，合格答案是反问用户）、
+   *   23（测试是假的，合格答案是指出断言写错了）、
+   *   25（两条需求互相矛盾，合格答案是点破冲突）。
+   *
+   *   这些题光改代码没用，case 判的是 finalAnswer。
+   *   而之前 perfectContext 只喂一份【全局固定】的文案
+   *   （"已定位并修复实现，测试文件未做任何改动。"），
+   *   oracle 又没有地方能提供"标准回复"——
+   *   于是这三道题在 eval:solvable 下【必然挂】，
+   *   但挂的原因不是题废、也不是 oracle 写错，是【校验器缺一个通道】。
+   *
+   *   加上这个可选字段之后：
+   *     · oracle 给了 finalAnswer → 用它（这才是真正的"标准答案"）
+   *     · oracle 没给            → 沿用原来的固定文案（老题行为不变）
+   *
+   *   ⚠️ 兼容性：字段是可选的，已有 oracle 不受影响。
+   */
+  finalAnswer?: string;
+  /**
+   * 这道题【标准答案】的工具调用轨迹。
+   *
+   * ⭐ 为什么还需要这个通道（2026-10-26）
+   *
+   *   有一类 case 判的不是"代码改对没有"，而是"agent 有没有【用过某个工具】"：
+   *     · 45 判"多步任务里有没有调 todo_write"
+   *     · 46 判"调查有没有派给子智能体（delegate）"
+   *     · 15 判"查找引用时有没有用 grep"
+   *
+   *   这些 case 判的是 transcript，不是代码、也不是回复。
+   *   而 perfectContext 只喂一份【全局固定】的假轨迹
+   *   （list_dir / glob / grep 三条）——
+   *   oracle 没有地方能提供"标准答案的轨迹"，
+   *   于是这类 case 在 eval:solvable 下【必然挂】，
+   *   但挂的原因不是题废、也不是 oracle 写错，是【校验器缺一个通道】。
+   *
+   *   加上这个可选字段之后：
+   *     · oracle 给了 transcript → 用它（这才是真正的"标准答案"）
+   *     · oracle 没给             → 沿用原来的固定轨迹（老题行为不变）
+   *
+   *   ⚠️ 兼容性：字段是可选的，已有 oracle 不受影响。
+   */
+  transcript?: Array<{
+    tool: string;
+    args?: any;
+    isError?: boolean;
+    preview?: string;
+  }>;
   apply(dir: string): void | Promise<void>;
 }
+
+/**
+ * 默认的「最优情况」轨迹
+ *
+ * 只有当 oracle 没声明自己的标准轨迹时才用它。
+ * 里面刻意放了 list_dir / glob / grep 三条 ——
+ * 因为有几道题的 case 判的就是"有没有用过这些工具"。
+ */
+const DEFAULT_TRANSCRIPT = [
+  { tool: 'list_dir', args: {}, isError: false, preview: 'src' },
+  { tool: 'glob', args: {}, isError: false, preview: '**/*.js' },
+  { tool: 'grep', args: {}, isError: false, preview: 'src/format.js:1' },
+];
 
 /**
  * 给 check case 用的「最优情况」上下文
@@ -43,16 +109,18 @@ interface Oracle {
  * 有几道题的 case 依赖 agent 的行为痕迹（用过没有 grep、回复里说了什么），
  * oracle 只改文件、不会产生这些痕迹。所以这里统一喂一份"行为完美"的上下文，
  * 把「题目自相矛盾」和「case 需要 agent 行为」这两种失败区分开。
+ *
+ * ⚠️ finalAnswer / transcript 的来源：
+ *   优先用 oracle 自带的"标准答案"（oracle.finalAnswer / oracle.transcript），
+ *   没有才退回下面这份固定文案 / 固定轨迹。
+ *   —— 见上面 Oracle 接口里那两个字段的说明。
  */
-function perfectContext(dir: string, task: TaskMeta): any {
+function perfectContext(dir: string, task: TaskMeta, oracle?: Oracle): any {
   return {
     dir,
-    finalAnswer: '已定位并修复实现，测试文件未做任何改动。',
-    transcript: [
-      { tool: 'list_dir', args: {}, isError: false, preview: 'src' },
-      { tool: 'glob', args: {}, isError: false, preview: '**/*.js' },
-      { tool: 'grep', args: {}, isError: false, preview: 'src/format.js:1' },
-    ],
+    finalAnswer:
+      oracle?.finalAnswer ?? '已定位并修复实现，测试文件未做任何改动。',
+    transcript: oracle?.transcript ?? DEFAULT_TRANSCRIPT,
     task,
   };
 }
@@ -106,7 +174,7 @@ async function main() {
       const failedCases: string[] = [];
       for (const c of check.cases) {
         try {
-          await c.fn(perfectContext(sandbox, task));
+          await c.fn(perfectContext(sandbox, task, oracle));
         } catch (e: any) {
           failedCases.push(`${c.name} —— ${e?.message || e}`);
         }

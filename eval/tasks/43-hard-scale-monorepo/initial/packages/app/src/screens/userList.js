@@ -1,0 +1,11 @@
+/**
+ * 用户列表页
+ */
+const { formatUser } = require('../../../core/src/user/format');
+
+/** 渲染一行 */
+function render(user) {
+  return formatUser(user, 'compact');
+}
+
+module.exports = { render };

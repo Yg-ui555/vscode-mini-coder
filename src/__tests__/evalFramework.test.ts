@@ -8,7 +8,7 @@
  * ⚠️ 这类"测量工具的 bug"比被测对象更可怕，所以单独锁死。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -85,11 +85,12 @@ describe('沙箱缓存清理', () => {
 });
 
 describe('任务加载', () => {
-  it('全部 23 道题都能被加载且结构正确', () => {
+  it('全部 30 道题都能被加载且结构正确', () => {
     const tasks = loadAllTasks();
     // ⚠️ 数量是【故意写死】的 —— 加题/删题时这里必须跟着改，
     //    这样"我以为加了题但其实没加载上"会立刻被测出来。
-    expect(tasks.length).toBe(23);
+    //    2026-10-26：23 → 30（新增 41-44 规模型 + 45-47 新功能型）。
+    expect(tasks.length).toBe(30);
 
     for (const t of tasks) {
       expect(t.id).toMatch(/^\d\d-/);
@@ -161,42 +162,68 @@ describe('任务加载', () => {
 });
 
 describe('baseline 设计铁律', () => {
-  it('⭐ 每题至少 2 个 case 在初始代码上通过（否则 L4 回归检测无意义）', async () => {
+  /**
+   * ⭐ 每道题的 baseline 结果（跑一次，两条断言共用）
+   *
+   * 为什么缓存而不是两条测试各跑一遍：
+   *   这两条铁律问的是【同一个问题的两面】——
+   *   "baseline 过几个" 和 "baseline 挂几个"。
+   *   原来它们各跑一遍完整流程（复制沙箱 + 逐个执行 case），
+   *   等于把最贵的那部分工作做了两遍。
+   *
+   *   题库从 23 道扩到 30 道、而且新题的沙箱有 60-72 个文件之后，
+   *   两遍的耗时直接顶破了 30 秒超时（2026-10-26 实测）。
+   *
+   * ⚠️ 这里【没有】改成抽样执行：
+   *   抽样会让"某道题的 baseline 设计不合格"被漏掉 ——
+   *   而这正是这两条测试存在的唯一理由。
+   *   提速的方式应该是【别重复算】，不是【少算几个】。
+   */
+  let baselineResults: Array<{
+    id: string;
+    passed: number;
+    failed: number;
+    total: number;
+  }>;
+
+  beforeAll(async () => {
+    // ⚠️ 不能用外层的 tmp —— 那是 beforeEach 建的，
+    //   而 beforeAll 比所有 beforeEach 跑得【更早】，那时候 tmp 还不存在。
+    const base = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'evalbase-'));
+    baselineResults = [];
     for (const task of loadAllTasks()) {
-      const sandbox = path.join(tmp, `t-${task.id}`);
+      const sandbox = path.join(base, `baseline-${task.id}`);
       if (fs.existsSync(task.initialDir)) copyDir(task.initialDir, sandbox);
       else fs.mkdirSync(sandbox, { recursive: true });
 
       const check = loadCheck(task);
       let passed = 0;
+      let failed = 0;
       for (const c of check.cases) {
         try {
           await c.fn({ dir: sandbox, finalAnswer: '', transcript: [], task });
           passed++;
         } catch {
-          /* 挂是正常的 */
-        }
-      }
-      expect(passed, `${task.id} baseline 只过 ${passed} 个`).toBeGreaterThanOrEqual(2);
-    }
-  });
-
-  it('⭐ 每题至少 1 个 case 在初始代码上失败（否则 agent 什么都不做也满分）', async () => {
-    for (const task of loadAllTasks()) {
-      const sandbox = path.join(tmp, `f-${task.id}`);
-      if (fs.existsSync(task.initialDir)) copyDir(task.initialDir, sandbox);
-      else fs.mkdirSync(sandbox, { recursive: true });
-
-      const check = loadCheck(task);
-      let failed = 0;
-      for (const c of check.cases) {
-        try {
-          await c.fn({ dir: sandbox, finalAnswer: '', transcript: [], task });
-        } catch {
           failed++;
         }
       }
-      expect(failed, `${task.id} baseline 全过，这题是废题`).toBeGreaterThanOrEqual(1);
+      baselineResults.push({ id: task.id, passed, failed, total: check.cases.length });
+
+      // 沙箱用完就删 —— 30 道题加起来是几千个文件，别留在磁盘上
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+    await fs.promises.rm(base, { recursive: true, force: true });
+  });
+
+  it('⭐ 每题至少 2 个 case 在初始代码上通过（否则 L4 回归检测无意义）', () => {
+    for (const r of baselineResults) {
+      expect(r.passed, `${r.id} baseline 只过 ${r.passed} 个`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('⭐ 每题至少 1 个 case 在初始代码上失败（否则 agent 什么都不做也满分）', () => {
+    for (const r of baselineResults) {
+      expect(r.failed, `${r.id} baseline 全过，这题是废题`).toBeGreaterThanOrEqual(1);
     }
   });
 });
@@ -245,7 +272,27 @@ describe('工具消融（ablation）', () => {
     const names = ablated.schemas.map((s: any) => s.function.name);
     expect(names).not.toContain('grep');
     expect(names).not.toContain('glob');
-    expect(names.length).toBe(7);
+
+    // ⚠️ 这里【不能】写死数字（曾经写的是 7）
+    //
+    //   2026-10-26 加了 todo_write / delegate 两个工具后，这条断言挂了 ——
+    //   而它挂掉的原因跟被测的行为【完全无关】，只是"工具多了两个"。
+    //
+    //   这就是"数个数"式断言的典型脆弱性：
+    //   它测的是"我记的数字对不对"，不是"消融到底有没有生效"。
+    //
+    //   改成【相对断言】：摘掉 N 个就少 N 个，且被摘的那几个确实不在。
+    //   这样以后加工具不会再挂，而真正要测的语义一点没丢。
+    const full = createDefaultRegistry();
+    expect(names.length).toBe(full.names.length - 2);
+  });
+
+  it('⭐ 新增工具必须出现在默认注册表里（防止"实现了但没注册"）', () => {
+    // 2026-10-26 新增的能力。它们的正确性依赖"真的被注册了"，
+    // 所以在这里钉死 —— 忘了注册的话，agent 会去调一个不存在的工具。
+    const names = createDefaultRegistry().names;
+    expect(names).toContain('todo_write');
+    expect(names).toContain('delegate');
   });
 });
 
