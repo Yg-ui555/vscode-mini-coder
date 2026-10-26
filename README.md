@@ -6,6 +6,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.86%2B-007ACC)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml)
+[![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%20100%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
+[![VSIX](https://img.shields.io/badge/VSIX-0.35%20MB-brightgreen)](ARCHITECTURE.md)
 
 ---
 
@@ -96,17 +99,17 @@ OpenAI 兼容协议规定：assistant 声明了 N 个 tool_call，就必须跟 N
 
 ## 评测结果
 
-23 道题 · 三档难度 · deepseek-chat · 2026-10-25
+最近一次全量评测（题库扩容前，23 道题）· 三档难度 · deepseek-chat · 2026-10-24
 
 | 指标 | 数值 |
 |---|---|
 | **Pass Rate** | **100%**（23/23） |
 | **目标 case 修好率** | **100%**（93/93）← 比任务级更细一档的信号 |
 | 造成回归 | 0 |
-| 总 token | 1,446,013（输入 1,382,301 / 输出 63,712） |
+| 总 token | 1,446,013（输入 1,379,691 / 输出 66,322） |
 | 总成本 | ¥3.29 |
 | 每通过一题 | ¥0.143 |
-| 总耗时 | 528.5s |
+| 总耗时 | 528.6s |
 
 | 档位 | 通过 | 考什么 |
 |---|---|---|
@@ -254,7 +257,7 @@ npm run eval -- --ablate grep,run_shell
 
 ## ⭐ 真实项目验证：拿插件去审一个真的中型项目（2026-10-25）
 
-评测集里的 23 道题都是小沙箱（5-9 个文件），只能回答「agent 在小项目上能不能改对」，
+当时的评测集里 23 道题都是小沙箱（5-9 个文件），只能回答「agent 在小项目上能不能改对」，
 回答不了「这插件在**真实项目**上还顶不顶得住」。
 
 所以把**同一套 AgentLoop + 同一套工具**指向一个真实项目跑了一遍：
@@ -489,20 +492,37 @@ Hook 机制把它改成 **4 个生命周期点 + 声明式配置**：
 
 ## 架构
 
+> 完整版（含数据流图、六个关键设计决策、协议约束速查、扩展指南）见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
+
 ```
 src/
 ├── agent/
-│   ├── loop.ts            ReAct 主循环（迭代上限来自 limits.ts）
+│   ├── loop.ts            ReAct 主循环（211 行，只负责"按顺序跑管线"）⭐
+│   ├── operations/        11 个 Operation（拆开的主循环）⭐
+│   │   ├── types.ts         Operation 契约 + 三态返回值
+│   │   ├── abort.ts         中断
+│   │   ├── maxIterations.ts 触顶强制收尾
+│   │   ├── contextGuard.ts  上下文压缩（分组保护 + pinned 机制）⭐
+│   │   ├── inference.ts     调 LLM（空响应重试）
+│   │   ├── toolExecution.ts 执行工具（分批并行 + 信任边界）⭐
+│   │   ├── stopHook.ts      Stop hook（"测试没过不许收工"）
+│   │   ├── steerInject.ts   用户插话
+│   │   └── todoInject.ts    待办清单（每轮重建注入）⭐
 │   ├── provider.ts        OpenAI 兼容流式 Provider（手写 fetch + SSE）
-│   ├── limits.ts          硬限制单一真相源 ⭐
-│   ├── context.ts         system prompt 拼装（含技能索引 + AGENTS.md）
+│   ├── context.ts         system prompt 拼装（含技能索引 + AGENTS.md + 不可信数据规则）
+│   ├── visibility.ts      双可见性（模型视图 / 用户视图解耦）⭐
+│   ├── trust.ts           不可信数据边界（提示注入防护）⭐
 │   ├── toolOutputStore.ts 大输出外置 ⭐
-│   ├── hooks/               4 个生命周期点（PreToolUse/PostToolUse/Stop/UserPromptSubmit）⭐
-│   └── tools/             9 个工具 + 工厂 + 元数据 + 路径白名单 + 三档权限
+│   ├── todo/store.ts      待办状态（内存 + session 持久化）
+│   ├── steering.ts        插话队列
+│   ├── hooks/             4 个生命周期点（PreToolUse/PostToolUse/Stop/UserPromptSubmit）⭐
+│   └── tools/             11 个工具 + 工厂 + 元数据 + 路径白名单 + 三档权限
+├── observability/        OTel 风格 span 记录器（/traces 命令）⭐
 ├── session/               JSONL 持久化 + 中断续跑快照
 ├── skills/                技能包渐进式加载 ⭐
 ├── features/              三个特色（autoTest / zhCommit / notes）
-├── eval/                  评测框架（23 题，L4 回归检测 + 消融实验）
+├── eval/                  评测框架（30 题，L4 回归检测 + 消融实验）
+├── commands/              命令面板（doctor / traces / sessions / permissions）
 └── util/                  token 计数 / 成本 / diff / 历史自愈
 ```
 
@@ -516,6 +536,10 @@ src/
   这个 bug 不会崩，只会让模型前期不主动收尾。
 - **hook 配置只有一处**（`agent/hooks/`）—— 4 个生命周期点的调度集中在一处，
   加新 hook 点不用改 agent 主循环以外的地方。
+- ⭐ **主循环只有一处**（`agent/loop.ts`）—— 1075 行 → 211 行。
+  原来上下文压缩、LLM 调用、工具分批并行、四个 Hook、中断处理、触顶收尾全挤在一个
+  while 循环里，加任何新能力都要先在 1000 行里找到地方。
+  现在新增能力 = 往 `operations/index.ts` 的管线数组里加一项。
 
 ---
 
@@ -525,16 +549,78 @@ src/
 npm install
 npm run compile
 npm run build:webview
-npm test                    # 451 个用例
+npm test                    # 529 个用例
+npm run check               # 架构守卫（工具注册表同步 / 文件行数上限 / 每题必有 oracle …）
+npm run check:package       # 打包守卫（VSIX 里不该有的东西）
 npm run eval:verify         # 校验每题 baseline 设计合格
 npm run eval:solvable       # 校验每题不是废题（跑人写的标准答案）
 npm run eval -- --dry       # 验证评测链路（不花钱）
-npm run eval                # 真跑 23 题（约 ¥3.3）
+npm run eval                # 真跑 30 题（约 ¥3.9）
+npm run vscode:package      # 产出 VSIX
 ```
 
 按 `F5` 打开 Extension Development Host。详见 [RUN.md](RUN.md)。
 
-更多设计意图与踩坑记录：[PROJECT.md](PROJECT.md)
+更多设计意图与踩坑记录：[PROJECT.md](PROJECT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) ·
+[ROADMAP_V2.md](ROADMAP_V2.md)
+
+---
+
+## ⭐ 证据：能验证的东西放前面
+
+> 这一节是给"筛选简历的人"看的 —— 每一行都可以点开验证。
+
+| 想验证 | 去哪看 |
+|---|---|
+| 测试是不是真的全绿 | [.github/workflows/ci.yml](.github/workflows/ci.yml) —— Linux + Windows 双平台矩阵，每次 push 自动跑 |
+| 架构是不是站得住 | [ARCHITECTURE.md](ARCHITECTURE.md) —— 数据流图、六个关键设计决策、协议约束速查、扩展指南 |
+| 评测题是不是废题 | `npm run eval:solvable` —— 30 道题**全部**配了人写的标准答案，执行后必须全绿 |
+| 评测集到底在测什么 | [eval/ABLATION.md](eval/ABLATION.md) —— 消融实验 |
+| 最近一次跑出什么结果 | [eval/RESULTS.md](eval/RESULTS.md) |
+| 面试怎么答 | [docs/INTERVIEW.md](docs/INTERVIEW.md) —— 12 题问答骨架 |
+
+### 消融实验：这 5 道题到底在测什么
+
+把某个工具从给 LLM 的 schema 里摘掉，看题还过不过 —— 这是回答"这套题到底在测什么"的唯一办法。
+
+| 配置 | 可用工具 | Pass Rate | 目标 case 修好 | 成本 | 轮数 |
+|---|---|---|---|---|---|
+| **全量** | 9 个工具 | 100% (5/5) | 28/28 | ¥1.5734 | 79 |
+| **摘 grep** | 8 个（无 grep） | 100% (5/5) | 28/28 | ¥1.1795 | 71 |
+| **摘 grep + run_shell** | 7 个（只能读和改） | 100% (5/5) | 28/28 | ¥1.3197 | 80 |
+
+**三个结论**（细节见 [eval/ABLATION.md](eval/ABLATION.md)）：
+
+1. **这几道题不测"会不会用 grep"** —— 摘掉 grep 照样全过。题目的代码库只有 5-9 个文件，
+   "把影响面找全"在小仓库里靠通读就能做到。
+2. ⭐ **消融本身有漏洞：`run_shell` 是后门** —— 摘掉 grep 之后，agent 转头就用
+   `run_shell` 跑了 **shell 版 grep**（`grep -rn "readConfig\|loadConfig\|..." src/ test/`）。
+   **能力一点没少，只是绕了个弯。** 所以"消融一个 CLI 工具"必须严格：还得把 `run_shell` 一起摘掉。
+3. ⭐⭐ **就算不能执行任何命令，agent 也能全过** —— 摘掉 grep + run_shell 之后，
+   它一次命令都跑不了（没法跑 `tsc`、没法跑测试），**结果仍然 28/28 全过、0 回归**。
+   它是靠**读类型定义推理**出该改哪几行的。
+
+> **这个结论直接决定了下一批题怎么出** —— 让**规模**成为瓶颈，而不是让**陷阱**成为瓶颈。
+> 于是有了 41-44 四道"规模型"题目（40-72 个文件的合成代码库）。
+>
+> 顺带一提：这个坑是**靠轨迹里记录工具参数**才发现的。
+> 之前轨迹里 `args` 恒为空对象，只能看到"调了 35 次 run_shell"，
+> 分不清跑的是 `ls` 还是 `grep` —— 而这两种结论完全相反，不能靠猜。
+> 修掉之后（`src/eval/runner.ts` 的 `summarizeArgs`）一眼就能看出问题。
+
+### 成本
+
+| 指标 | 数值 |
+|---|---|
+| 最近一次全量评测（23 题） | ¥3.29 |
+| 单题均摊 | ¥0.143 |
+| 总 token | 1,446,013（输入 95.4% / 输出 4.6%） |
+| CI 里的评测冒烟（2 题） | ≈ ¥0.11 |
+| VSIX 体积 | < 1.5 MB（守卫阈值 2 MB） |
+
+> 输入 token 占 95.4% 的原因很直接：**ReAct 循环每一步都要重发全部上下文**。
+> 这也是上下文治理那套东西（大输出外置 / 渐进式技能加载 / 重复调用检测 / 子智能体隔离）
+> 存在的理由 —— 它们省的就是这一块。
 
 ---
 
