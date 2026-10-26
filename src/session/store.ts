@@ -52,6 +52,21 @@ export interface SessionMeta {
   messageCount: number;
   provider?: string;
   model?: string;
+  /**
+   * ⭐ 多步任务的待办清单（2026-10-26）
+   *
+   *   为什么必须存在【会话文件】里，而不是只在内存：
+   *     待办清单就像航班号 —— 写在黑板上，飞机降落后黑板擦了，
+   *     旅客就不知道自己该转哪个航站楼。
+   *
+   *   还有一个更硬的理由：上下文压缩会压掉对话历史。
+   *   如果待办状态只存在于某条历史消息里，压缩之后它就跟着没了 ——
+   *   agent 会"忘了"自己走到第几步，然后重复做或者干脆从头再来。
+   *
+   *   所以状态存 session，消息流会被压缩，状态不会。
+   *   （借鉴 goose 的 session/extension_data.rs）
+   */
+  todos?: Array<{ content: string; status: string; activeForm?: string }>;
 }
 
 export interface StoredMessage {
@@ -179,7 +194,12 @@ export class SessionStore {
    * @param messages 当前完整消息数组（含 system prompt）
    * @param extra    额外写入 meta 的信息（provider / model）
    */
-  save(messages: any[], extra?: { provider?: string; model?: string; title?: string }): SessionMeta {
+  save(messages: any[], extra?: {
+    provider?: string;
+    model?: string;
+    title?: string;
+    todos?: Array<{ content: string; status: string; activeForm?: string }>;
+  }): SessionMeta {
     const sessionId = this.currentId;
     const now = new Date().toISOString();
 
@@ -198,6 +218,9 @@ export class SessionStore {
       messageCount: messages.length,
       provider: extra?.provider ?? existing?.provider,
       model: extra?.model ?? existing?.model,
+      // ⭐ 待办清单：本次有就更新，没有就沿用上次的
+      //   （没传不代表清空了 —— 清空是"显式传空数组"）
+      todos: extra?.todos ?? existing?.todos,
     };
 
     const lines: string[] = [JSON.stringify(meta)];

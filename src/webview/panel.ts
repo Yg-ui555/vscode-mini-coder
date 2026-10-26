@@ -38,6 +38,8 @@ import {
   makeBatchSignature,
 } from '../session/resume';
 import { setCheckpointSession } from '../agent/checkpoint/store';
+import { getTodoStore } from '../agent/todo/store';
+import { getSteeringQueue } from '../agent/steering';
 import { formatUsage } from '../util/tokens';
 
 export class ChatPanel {
@@ -85,9 +87,17 @@ export class ChatPanel {
     const loaded = this._sessionStore.load();
     if (loaded.messages.length > 0) {
       this._messages = loaded.messages;
+      // ⭐ 恢复待办清单
+      //   待办状态存在会话的 meta 里，不在消息流里 ——
+      //   消息流会被上下文压缩，待办不会。
+      //   （关掉 VS Code 再打开，agent 仍然知道自己走到第几步）
+      if (loaded.meta?.todos?.length) {
+        getTodoStore().replace(loaded.meta.todos as any);
+      }
       info(
         `已恢复上次会话 ${loaded.meta?.id}：${loaded.messages.length} 条消息` +
-          `（${loaded.meta?.updatedAt ? new Date(loaded.meta.updatedAt).toLocaleString('zh-CN') : '未知时间'}）`,
+          `（${loaded.meta?.updatedAt ? new Date(loaded.meta.updatedAt).toLocaleString('zh-CN') : '未知时间'}）` +
+          (loaded.meta?.todos?.length ? `，待办 ${loaded.meta.todos.length} 项` : ''),
       );
       this._offerResume();
     }
@@ -151,6 +161,8 @@ export class ChatPanel {
         //   不发这一条的话，会话虽然在磁盘上，但用户打开面板看到的是空白，
         //   等于白存。前端对应的 case 在 ChatPanel.tsx 里。
         this._postMessage({ type: 'history', messages: this._messagesToWebview() });
+        // ⭐ 把待办清单也推给前端（重开面板时进度条要还在）
+        this._postMessage({ type: 'todo', todos: getTodoStore().get() });
         break;
       case 'user_input':
         await this._runAgent(msg.content);
@@ -165,13 +177,29 @@ export class ChatPanel {
           info('用户中断了当前任务');
         }
         break;
+      case 'steer':
+        // ⭐ 用户中途插话
+        //   不打断正在执行的工具 —— 消息排队，等当前批次跑完注入下一轮。
+        //   （见 src/agent/steering.ts 的说明）
+        getSteeringQueue().push(String(msg.content ?? ''));
+        this._postMessage({
+          type: 'text',
+          content: `\n💬 [插话] ${msg.content}\n\n`,
+        });
+        info(`用户插话：${String(msg.content ?? '').slice(0, 100)}`);
+        break;
       case 'new_session':
         // 开一个新会话：内存清空 + 落盘指针切换 + checkpoint 换新会话目录
         this._messages = [];
         this._abortController?.abort();
         this._sessionStore.startNew();
         setCheckpointSession(this._sessionStore.currentSessionId);
+        // ⭐ 新会话要把待办和插话队列一起清掉
+        //   否则上个会话的待办会跟着跑过来，agent 以为那些活还没做完。
+        getTodoStore().clear();
+        getSteeringQueue().clear();
         this._postMessage({ type: 'clear' });
+        this._postMessage({ type: 'todo', todos: [] });
         info(`用户开启了新会话：${this._sessionStore.currentSessionId}`);
         break;
       case 'run_command':
@@ -280,13 +308,20 @@ export class ChatPanel {
       await loop.run(this._messages, this._abortController.signal, {
         onText: (chunk) => this._postMessage({ type: 'text', content: chunk }),
         onToolCall: (name, args) => this._postMessage({ type: 'tool_call', name, args }),
-        onToolResult: (name, result) =>
+        onToolResult: (name, result) => {
           this._postMessage({
             type: 'tool_result',
             name,
             result: result.content.slice(0, 1000),
             isError: !!result.isError,
-          }),
+          });
+          // ⭐ 待办清单变了 → 立刻推给前端渲染
+          //   （在工具结果回调里推，而不是等回合结束 ——
+          //    这样用户能实时看到 agent 的进度条在动）
+          if (name === 'todo_write') {
+            this._postMessage({ type: 'todo', todos: getTodoStore().get() });
+          }
+        },
         // ⭐ 上下文用量实时回传，让用户看得见"还剩多少"
         onCompact: (msg) => this._postMessage({ type: 'text', content: `\n${msg}\n` }),
         onUsage: (used, window) =>
@@ -452,6 +487,9 @@ export class ChatPanel {
       const meta = this._sessionStore.save(this._messages, {
         provider,
         model: configured?.config.defaultModel,
+        // ⭐ 待办清单一起落盘
+        //   这样"关掉 VS Code 再打开"时，agent 仍然知道自己走到第几步。
+        todos: getTodoStore().get() as any,
       });
       info(`会话已保存 ${meta.id}：${meta.messageCount} 条消息`);
     } catch (e: any) {

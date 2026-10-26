@@ -28,6 +28,7 @@ import {
   buildAlwaysSkillsBlock,
 } from '../skills';
 import { describeLimits } from './limits';
+import { UNTRUSTED_RULE } from './trust';
 
 /** 项目级规则文件，agent 启动时自动加载 */
 const BOOTSTRAP_FILES = ['AGENTS.md', 'SOUL.md', 'USER.md'];
@@ -96,6 +97,13 @@ export class ContextBuilder {
     ruleTexts.push('不要生造内容：read 不到就说不存在，不要瞎编');
     ruleTexts.push('承认错误：发现改错立刻 rollback');
 
+    // ⭐ 不可信数据边界（提示注入防护）
+    //   这是【全局兜底】—— 边界标记（管线出口给所有工具输出打的标记）只是局部加固，
+    //   这条规则才是覆盖全部来源的。
+    //   借鉴 nanobot 的 untrusted_content.md（但我们的注入来源是仓库文件，
+    //   风险面比"读网页"更大 —— 用户 clone 一个仓库就可能带着恶意 README）。
+    const untrustedRule = UNTRUSTED_RULE;
+
     // 工作流步骤也按实际可用的工具拼 —— 只读模式不该教它"改完跑测试"
     const workflow: string[] = [];
     if (has('list_dir')) workflow.push('用户问任务 → list_dir 了解结构');
@@ -118,6 +126,8 @@ export class ContextBuilder {
 # 核心约定
 
 ${ruleTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+${untrustedRule}
 
 # 中文 commit 规范
 
@@ -146,6 +156,46 @@ ${
 错题本被垃圾淹没就失去意义了。
 
 pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志"的关键。`
+    : ''
+}
+
+${
+  has('todo_write')
+    ? `# 任务清单（todo_write）
+
+遇到【多步任务】（要改多个文件、要跑多个命令、分几个阶段才能完成）时，
+先调用 todo_write 把步骤列出来，然后每完成一步就更新一次状态。
+
+为什么重要：你的上下文会被自动压缩，历史对话会被压掉。
+待办清单是【独立于对话历史】保存的 —— 压缩之后它还在，
+这样你始终知道自己走到第几步，不会重复做或者从头再来。
+
+规则：
+- 同一时刻最多只能有一项是 in_progress
+- 全部做完后传空数组清空清单，并向用户汇报`
+    : ''
+}
+
+${
+  has('delegate')
+    ? `# 派子智能体（delegate）
+
+当你需要调查一件【独立的、可能涉及大量文件】的事时，
+可以调用 delegate 派一个子智能体去做。
+
+子智能体的特点：
+- 它有【独立上下文】，看不到你和用户的对话 —— 所以 task 必须写全
+- 它只有只读工具（读文件 / 搜索 / 找文件 / 列目录），不能改文件
+- 它的中间过程【不会进入你的上下文】，你只会拿到最后那段结论
+
+什么时候该派：
+- 要在很大的代码库里做影响面调查（"找出所有用了 X 的地方"）
+- 要在多个候选方案之间做对比调研
+- 调查本身会产生很多中间数据，但你最终只需要一小部分结论
+
+什么时候不该派：
+- 直接改代码、跑命令（子智能体做不到）
+- 简单的、单步就能查清的事（派过去反而更贵 —— 它要自己再读一遍代码）`
     : ''
 }
 

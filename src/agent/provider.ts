@@ -22,6 +22,7 @@
 import { retry, defaultShouldRetry } from '../retry';
 import { APIError, NetworkError, AuthError, RateLimitError, CreditsExhaustedError, EndpointNotFoundError } from '../errors';
 import { info, warn } from '../logger';
+import { getSpanRecorder, traceContentEnabled } from '../observability/spans';
 
 export interface ToolCallRequest {
   id: string;
@@ -72,20 +73,89 @@ function normalizeUsage(raw: any): TokenUsage | undefined {
 }
 
 export class OpenAIProvider {
+  /**
+   * @param baseUrl   API 地址
+   * @param apiKey    密钥
+   * @param model     模型名
+   * @param providerName 追踪里显示的 provider 名（留空则从 baseUrl 推断）
+   */
   constructor(
     private baseUrl: string,
     private apiKey: string,
     private model: string,
+    private providerName: string = '',
   ) {}
+
+  /** 追踪里用的 provider 名 */
+  private get traceProviderName(): string {
+    if (this.providerName) return this.providerName;
+    try {
+      const host = new URL(this.baseUrl).hostname;
+      // api.deepseek.com → deepseek；api.minimaxi.com → minimax
+      const m = host.match(/^(?:api\.)?([a-z0-9-]+)/i);
+      return m ? m[1] : host;
+    } catch {
+      return 'unknown';
+    }
+  }
 
   /**
    * 流式调用 LLM
+   *
+   * ⭐ 这一层包了一个 span（调用追踪）
+   *
+   *   span 名字用 OTel GenAI 语义约定的 `gen_ai.chat`，
+   *   属性名也全部用 `gen_ai.*` —— 以后接 Langfuse / Arize / Phoenix
+   *   这类 APM 平台时，字段名不用重命名。
+   *
+   *   ⭐ prompt 内容【默认不记录】——
+   *   你的 agent 会读到用户源码、密码、API Key，
+   *   默认写进 trace 等于把用户代码抄一份到磁盘。
+   *   要开必须显式设环境变量 MINI_CODER_TRACE_CONTENT=1。
+   *
    * @returns AsyncGenerator 持续产出文本片段，最后产出 finalResponse
    */
   async *stream(
     messages: Array<{ role: string; content?: string; tool_calls?: any[]; tool_call_id?: string }>,
     tools: Array<{ type: string; function: any }>,
     signal?: AbortSignal,
+  ): AsyncGenerator<StreamChunk> {
+    const rec = getSpanRecorder();
+    const spanId = rec.start('gen_ai.chat', {
+      'gen_ai.operation.name': 'chat',
+      'gen_ai.provider.name': this.traceProviderName,
+      'gen_ai.request.model': this.model,
+      'gen_ai.request.message_count': messages.length,
+      'gen_ai.request.tool_count': tools.length,
+    });
+
+    // ⭐ 内容默认不记录（要开必须显式设 MINI_CODER_TRACE_CONTENT=1）
+    if (traceContentEnabled()) {
+      const span = rec.getAll().find((s) => s.id === spanId);
+      if (span) {
+        span.attributes['gen_ai.request.messages'] = JSON.stringify(messages).slice(0, 4000);
+      }
+    }
+
+    const startedAt = Date.now();
+    try {
+      yield* this._streamInner(messages, tools, signal, spanId);
+      rec.end(spanId, { durationMs: Date.now() - startedAt });
+    } catch (e: any) {
+      rec.end(spanId, {
+        error: e?.message || String(e),
+        durationMs: Date.now() - startedAt,
+      });
+      throw e;
+    }
+  }
+
+  /** ⭐ 真正的流式实现（被 stream() 包在 span 里） */
+  private async *_streamInner(
+    messages: Array<{ role: string; content?: string; tool_calls?: any[]; tool_call_id?: string }>,
+    tools: Array<{ type: string; function: any }>,
+    signal: AbortSignal | undefined,
+    spanId: string,
   ): AsyncGenerator<StreamChunk> {
     const body: Record<string, any> = {
       model: this.model,
@@ -233,5 +303,18 @@ export class OpenAIProvider {
       },
       ...(usageBuf ? { usage: usageBuf } : {}),
     };
+
+    // ⭐ 把真实 token 用量记进 span
+    //   这是"运行时成本归因"的数据来源 ——
+    //   有了它就不只是"这次会话花了多少钱"，而是"钱花在第几次调用上"。
+    if (usageBuf) {
+      const rec = getSpanRecorder();
+      const span = rec.getAll().find((s) => s.id === spanId);
+      if (span) {
+        span.attributes['gen_ai.usage.input_tokens'] = usageBuf.promptTokens;
+        span.attributes['gen_ai.usage.output_tokens'] = usageBuf.completionTokens;
+        span.attributes['gen_ai.usage.total_tokens'] = usageBuf.totalTokens;
+      }
+    }
   }
 }

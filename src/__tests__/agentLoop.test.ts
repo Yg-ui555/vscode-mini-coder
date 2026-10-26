@@ -106,7 +106,14 @@ describe('AgentLoop', () => {
     // 第二轮收到的 messages 应该包含 tool_calls assistant 消息 + tool result
     const secondRound = provider.receivedMessages[1];
     expect(secondRound.some((m: any) => m.role === 'assistant' && m.tool_calls)).toBe(true);
-    expect(secondRound.some((m: any) => m.role === 'tool' && m.content === 'echo-result')).toBe(true);
+
+    // ⭐ 工具结果会带【不可信数据边界标记】（提示注入防护）
+    //   标记打在管线出口 —— 见 src/agent/trust.ts。
+    //   这里顺手断言一下：这个测试同时也是"边界标记没被改掉"的守卫。
+    const toolMsg = secondRound.find((m: any) => m.role === 'tool');
+    expect(toolMsg).toBeTruthy();
+    expect(toolMsg.content).toContain('echo-result');
+    expect(toolMsg.content).toContain('<untrusted_content>');
   });
 
   it('should fire onCompact callback when messages exceed threshold', async () => {

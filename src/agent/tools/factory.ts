@@ -25,7 +25,12 @@ import { GlobTool } from './glob';
 import { ListDirTool } from './listDir';
 import { RestoreFileTool } from './restoreFile';
 import { RecordNoteTool } from './recordNote';
+import { TodoWriteTool } from './todoWrite';
+import { DelegateTool } from './delegate';
 import { ReadOnlyToolNames } from './meta';
+import { createReadOnlyRegistry, SUBAGENT_READONLY_TOOLS } from './readonlySet';
+
+export { createReadOnlyRegistry, SUBAGENT_READONLY_TOOLS };
 
 /**
  * 完整工具集 —— 用户实际能用的全部工具
@@ -35,8 +40,14 @@ import { ReadOnlyToolNames } from './meta';
  *           它更可能选对工具（对应 nanobot 的 get_definitions 排序策略）。
  *   理由二：工具顺序稳定 → prompt 前缀稳定 → 能命中 provider 端的
  *           prompt cache，直接省钱。
+ *
+ * @param opts.exclude 消融：把指定工具【摘掉】
+ * @param opts.include 白名单：只注册这些工具
  */
-export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegistry {
+export function createDefaultRegistry(opts?: {
+  exclude?: string[];
+  include?: string[];
+}): ToolRegistry {
   const registry = new ToolRegistry();
 
   // ⭐ 消融（ablation）：把指定工具【摘掉】，其余照常注册
@@ -61,9 +72,12 @@ export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegist
   //   （见 src/agent/context.ts 的 toolNames 参数）。
   //   其余工具 prompt 里本来就没提名字，一直是干净的。
   const exclude = new Set(opts?.exclude ?? []);
+  // ⭐ 白名单模式：只注册名单里的工具（子智能体用）
+  const include = opts?.include ? new Set<string>(opts.include) : null;
 
   const register = (tool: Tool) => {
     if (exclude.has(tool.name)) return;
+    if (include && !include.has(tool.name)) return;
     registry.register(tool);
   };
 
@@ -74,6 +88,12 @@ export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegist
   register(new ListDirTool());
   register(new RecordNoteTool());
 
+  // 状态组：改的是 agent 自己的状态，不动用户的文件
+  //   todo_write —— 多步任务的进度真相
+  //   delegate   —— 派子智能体去做独立调查（上下文隔离）
+  register(new TodoWriteTool());
+  register(new DelegateTool());
+
   // 写入组：有副作用，需要确认 + checkpoint
   register(new ApplyPatchTool());
   register(new WriteFileTool());
@@ -82,19 +102,6 @@ export function createDefaultRegistry(opts?: { exclude?: string[] }): ToolRegist
   // 执行组：能力最大，破坏性最高
   register(new RunShellTool());
 
-  return registry;
-}
-
-/**
- * 只读工具集 —— 用于"只想让它看，不想让它动"的场景
- *   /doctor 检查、只读诊断、未来可能的 plan 模式
- */
-export function createReadOnlyRegistry(): ToolRegistry {
-  const registry = new ToolRegistry();
-  registry.register(new ReadFileTool());
-  registry.register(new GrepTool());
-  registry.register(new GlobTool());
-  registry.register(new ListDirTool());
   return registry;
 }
 
@@ -117,6 +124,9 @@ export function createFixRegistry(): ToolRegistry {
 /** 全部工具名（/doctor 用来核对有没有漏注册） */
 export const ALL_TOOL_NAMES = [
   ...ReadOnlyToolNames,
+  'record_note',
+  'todo_write',
+  'delegate',
   'apply_patch',
   'write_file',
   'restore_file',
