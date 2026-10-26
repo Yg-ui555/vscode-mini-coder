@@ -1,0 +1,201 @@
+# Mini-Coder CI
+#
+# ⭐ 这个文件回答一个面试问题：
+#   "你说你有 474 个测试 —— 你怎么保证它们一直是绿的？"
+#
+#   答案不能是"我每次手动跑"。答案得是：每次 push 自动跑，徽章挂在 README 上。
+#
+# ─────────────────────────────────────────────────────────────
+# 四个 job 的分工
+#
+#   test        跑单元测试。矩阵含 Linux + Windows —— 不是凑数，
+#               是因为本项目大量处理 Windows 特有行为：
+#                 · cmd.exe 报错是中文且是 GBK 编码（Node 按 UTF-8 解码会乱码）
+#                 · SIGTERM 在 Windows 上不一定生效，要补 SIGKILL
+#                 · PATHEXT / 中文路径 / GBK 编码的输出
+#               只在 Linux 上测 = 本项目最关键的路径完全没被测到。
+#
+#   guard       架构守卫（scripts/checkProject.js）。
+#               跑得比 test 快得多，但能在代码腐化到不可收拾之前报警。
+#
+#   eval-smoke  评测冒烟。只跑 2 道题（约 ¥0.11），验证
+#               「provider 链路 + 工具注册表 + 沙箱隔离」没坏。
+#               完整评测（30 题，约 ¥3.3）太贵，不适合每次 push 跑。
+#
+# ─────────────────────────────────────────────────────────────
+# 关于密钥
+#
+#   API Key 走 GitHub Secrets（仓库加密变量），绝不能进日志。
+#   ⚠️ 本地 .env 里是真实 key，且已在 .gitignore 里 —— 别把它提交上来。
+#
+#   eval-smoke 在 fork 上会自动跳过（fork 没有 Secrets）。
+#   这是刻意的：开源项目被 PR 时不该烧别人的钱，也不该让 CI 因为
+#   "没有 key"而变红（红了的 CI 等于没有 CI）。
+# ─────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # 每天 UTC 18:00（北京时间次日 02:00）跑一次全量评测
+  # —— 这是"agent 产品的 CI"：不是测代码有没有坏，是测能力有没有退化。
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ⚠️ 为什么是 22（而不是 18）：
+  #   · vitest 5 的 peer 要求 @types/node >= 22，装不了低的
+  #   · 本地开发用的是 Node 24
+  #
+  #   ⚠️ 一个诚实的已知限制：
+  #   扩展跑在 VS Code 的扩展宿主里（VS Code 1.86 → Node 18），
+  #   而 CI 跑在 Node 22 上 —— 这两者的运行时不是同一个。
+  #   实测 src/ 里【没有用到】任何 Node 20+ 才有的 API
+  #   （fs.glob / structuredClone / toSorted / Object.groupBy 等都查过），
+  #   所以目前是安全的；但如果以后引入了新 API，类型不会报错、运行时才会炸。
+  #   想要彻底消除这个缺口，需要在 engines.vscode 里要求 Node 22 的宿主版本。
+  NODE_VERSION: '22'
+
+jobs:
+  # ───────────────────────────────────────────────────────────
+  # Job 1：单元测试（Linux + Windows 矩阵）
+  # ───────────────────────────────────────────────────────────
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # 一个平台挂了不要取消另一个平台的 —— 两个平台的失败原因往往不同，
+      # 都要看到。
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # npm ci 而不是 npm install：
+      #   ci 严格按 package-lock.json 装，能发现"lock 文件和 package.json 不一致"
+      #   这类问题。install 会顺手改 lock，把问题藏起来。
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run compile
+
+      # ⭐ 只跑一次 —— test:coverage 本身就会把全部用例跑一遍
+      #   （coverage 是在测试跑完之后统计的，不是另起一轮）。
+      #   之前这里同时跑了 npm test 和 npm run test:coverage，
+      #   等于把最贵的那部分工作做了两遍，CI 每次多花 2-3 分钟。
+      - name: Unit tests + coverage
+        run: npm run test:coverage
+
+  # ───────────────────────────────────────────────────────────
+  # Job 2：架构守卫
+  #
+  # 跑得极快（< 2 秒），但能挡住几类"慢性病"：
+  #   · provider 名单在 package.json 和 config.ts 里不同步
+  #     （2026-10-22 修过一次真实的"配置项骗用户"bug —— 修了但没加守卫）
+  #   · 工具注册表和 ALL_TOOL_NAMES 对不上
+  #   · 单文件无限膨胀（本项目曾有一个 1076 行的主循环）
+  #   · .vscodeignore 漏排除，打包把评测产物塞给用户
+  #   · 新增评测题但没配标准答案（= 废题混入评测集）
+  # ───────────────────────────────────────────────────────────
+  guard:
+    name: architecture guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+      - name: Project self-check
+        run: npm run check
+
+  # ───────────────────────────────────────────────────────────
+  # Job 3：评测冒烟
+  #
+  # 只跑 2 道题（一道普通档 + 一道对抗档），约 ¥0.11。
+  # 目的不是测能力，是测【链路】：provider 能不能通、工具注册表对不对、
+  # 沙箱隔离开没开、check.js 能不能加载。
+  #
+  # fork PR 上没有 Secret → 整块跳过（而不是红）。
+  # ───────────────────────────────────────────────────────────
+  eval-smoke:
+    name: eval smoke
+    runs-on: ubuntu-latest
+    needs: [guard]
+    if: ${{ github.event_name != 'pull_request' || secrets.DEEPSEEK_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+
+      - name: Dry run (no API calls, verifies the whole pipeline)
+        env:
+          MINI_CODER_PROVIDER: deepseek
+        run: npm run eval:dry
+
+      - name: Smoke run (2 tasks)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MINI_CODER_PROVIDER: deepseek
+          MINI_CODER_MODEL: deepseek-chat
+        run: node out/eval/cli.js 01 23
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-report
+          path: eval/RESULTS.md
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────
+  # Job 4：打包体积守卫
+  #
+  # vsce 只读 .vscodeignore、不读 .gitignore。
+  # 曾经 .gitignore 排除了 eval/results.json，但 .vscodeignore 没排 ——
+  # 结果 280KB 评测产物 + 150KB 基线 + 整个 webview-ui 会被打进 VSIX。
+  # 这个 job 把它变成【可自动发现的失败】，而不是等用户装完才发现。
+  # ───────────────────────────────────────────────────────────
+  package:
+    name: package size
+    runs-on: ubuntu-latest
+    needs: [guard]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build:all
+      - name: List what would be packaged
+        run: npx --yes @vscode/vsce@3 ls > vsce-files.txt
+      - name: Actually package it (the real end-to-end proof)
+        run: npx --yes @vscode/vsce@3 package --out mini-coder-ci.vsix
+      # 这个脚本查两件事：
+      #   ① 清单里有没有不该给用户的东西（eval/ src/ out/__tests__/ …）
+      #   ② 产出的 .vsix 有没有超过体积上限（2 MB）
+      #      —— 清单"看着正常"但体积爆炸的情况真实发生过（633KB 的编译后测试代码）
+      - name: Assert no eval/webview-ui leaked into the package, and size is in budget
+        run: node scripts/checkPackage.js vsce-files.txt

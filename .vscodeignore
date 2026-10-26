@@ -1,7 +1,98 @@
-# node_modules/  # 调试时需要，取消注释会导致模块找不到
-src/
+# ⚠️ vsce（VS Code 官方打包工具）**只读 .vscodeignore，不读 .gitignore**
+#
+#   这条机制导致过两个真实的打包事故：
+#
+#   事故 1（体积）：
+#     .gitignore 里排除了 eval/results.json、webview-ui/node_modules，
+#     但 .vscodeignore 没排 —— 于是 280KB 评测产物 + 150KB 基线数据
+#     + 整个前端依赖目录，全被塞进发给用户的 VSIX 里。
+#
+#   事故 2（安全扫描拦截）：
+#     编译后的【测试文件】out/__tests__/tools/redact.test.js 里，
+#     有几条【故意伪造的假密钥】（测脱敏逻辑用的）。
+#     vsce 的密钥扫描器认不出来真假，直接拒绝打包：
+#       "Potential security issue detected: ... GitHub Token ... slack token"
+#     这不是 vsce 误报 —— 它看到的就是一串长得极像真密钥的字符串。
+#     正确的修法不是加 --allow-package-secrets（那是把扫描器关掉），
+#     而是【根本不要把测试代码打进包】。
+#
+# ─────────────────────────────────────────────────────────────
+# ⭐⭐⭐ 最重要的一条：vsce 的匹配语义【不是】gitignore 语义
+#
+#   读 vsce 源码（out/package.js 的 collectFiles）得到的真实规则：
+#
+#     文件被【排除】的条件是：
+#       (没被任何 ignore 规则命中) 且 (没被任何 negate 规则命中)
+#
+#   翻译成人话：
+#     · 规则分成两组：`!` 开头的是"无条件包含"，其余是"排除"
+#     · 只要有【任意一条】 `!` 规则命中这个文件，它就【一定进包】
+#     · 规则之间的先后顺序【完全不起作用】
+#
+#   ⚠️ 后果：`!out/**` 这种"整目录保底"的写法是【毒药】——
+#     它会让 out/ 底下【每一个文件】都无条件进包，
+#     于是 `out/__tests__/**` 这种排除规则写多少遍都没用。
+#     （这个坑我踩过一次：明明写了排除规则，72 个测试文件照样进包）
+#
+#   所以正确写法是：
+#     · 不要写 `!out/**`
+#     · 只需要排除真正不想发的子目录（out/__tests__、out/eval）
+#     · `!` 只用在【确实需要保底、且范围足够小】的目录上
+#
+#   另一个细节：vsce 会给"不以 * 结尾"的规则自动补 `/**`，
+#   所以写 `out/__tests__` 和写 `out/__tests__/**` 效果一样。
+#
+#   改完先跑 `npx @vscode/vsce ls` 看实际清单，
+#   再跑 `npm run check:package` 里的打包守卫断言。
+#
+# ── 编译产物之外的一切 ─────────────────────────────────────
+src/**
+out/**/*.map
+out/**/*.ts
+webview-ui/**
+eval/**
+scripts/**
+test_demo.py
 tsconfig.json
-*.map
-*.log
+vitest.config.mts
+**/*.ts
+**/*.map
+**/*.log
+**/.DS_Store
 .gitignore
+.git/**
 .env
+.env.*
+**/secrets/**
+
+# ── 开发期文件（用户装插件完全用不到）────────────────────────
+.github/**
+.tmp/**
+.claude/**
+docs/**
+coverage/**
+ROADMAP.md
+ROADMAP_V2.md
+PROJECT.md
+RUN.md
+VISION.html
+vsce-files.txt
+*.vsix
+
+# ── ⭐ out/ 里面也有不该发的 ─────────────────────────────────
+#   out/__tests__/  编译后的测试代码（72 个文件 / 633 KB）
+#                   —— 用户装插件不需要跑测试
+#                   —— 而且里面有故意伪造的假密钥，会触发 vsce 的安全扫描
+#   out/eval/       评测框架的编译产物（18 个文件 / 140 KB）
+#                   —— 评测是离线跑的，插件运行时用不到
+out/__tests__
+out/eval
+
+# ── 必须保留的（下面这些是产品运行必需）─────────────────────
+#   !skills/**        内置技能包（产品功能，用户要能用到）
+#   !dist-webview/**  webview 构建产物（聊天面板的界面）
+#   ⚠️ 这两条是【小范围】的保底，不影响上面的排除规则。
+#      out/ 不需要 `!out/**` —— 它本来就没被整体排除过，
+#      只需要排掉 __tests__ 和 eval 两个子目录。
+!skills/**
+!dist-webview/**

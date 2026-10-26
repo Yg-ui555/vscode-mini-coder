@@ -18,3 +18,11 @@ eval/results-*.json
 
 # 临时文件（commit message 模板、调试产物等）
 .tmp/
+
+# 打包产物 —— VSIX 是构建结果，不进版本库
+# （要发布时用 `npm run vscode:package` 现生成）
+*.vsix
+vsce-files.txt
+
+# 覆盖率报告（HTML 报告动辄几十 MB）
+coverage/

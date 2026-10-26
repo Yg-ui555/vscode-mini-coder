@@ -68,6 +68,10 @@ describe('敏感文件识别', () => {
 });
 
 describe('脱敏规则', () => {
+  // ⚠️ 本文件里的"密钥"全是【故意造出来的假 key】，
+  //    而且是【运行时拼出来】的 —— 源码里不出现完整字面量，
+  //    这样 GitHub 服务端的 push protection 也不会误伤本仓库。
+
   it('⭐ 字面量密钥必须被涂掉（对所有文件生效）', () => {
     const src = `LLM_API_KEY="${FAKE_SK}"`;
     const r = redactContent(src, 'src/rag/llm_chain.py');
