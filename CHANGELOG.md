@@ -102,6 +102,16 @@
 - ⭐ **`@types/vscode` 与 `engines.vscode` 版本对不上**，vsce 拒绝打包。
   实测代码用 1.86 的类型**零改动**编译通过 → 说明本来就没用更新的 API，
   1.86 就是诚实的下限，已对齐。
+- ⭐⭐ **评测题文件被换行符搞坏了 —— 标准答案自己都跑不过**：
+  `npm run eval:solvable` 在 Windows 上是 28/30，43 和 44 两道题报
+  「标准答案锚点没找到」。看着像题坏了，其实是**行尾坏了**：
+  标准答案的锚点是多行字符串（要同时匹配目标文件的连续几行），
+  锚点里的换行是 `\n`，而本机 `core.autocrlf=true`
+  把工作区里的目标文件转成了 CRLF，`includes()` 自然匹配不上。
+  同一份代码会因操作系统给出不同结论 ——
+  Linux clone 30/30，Windows clone 28/30，而且报错完全看不出原因。
+  修法：加 `.gitattributes`，把 `eval/**` 显式钉成 LF
+  （只钉 eval/，不动 src/，避免触发全仓库重新归一化）。
 - ⭐ **打包守卫在 Windows 上跑不起来**（`spawnSync npx ENOENT`——
   Windows 的 npx 实际是 `npx.cmd`）。
 - ⭐ **架构守卫自己崩了**（`Cannot access 'readOnlyNames' before initialization`——
