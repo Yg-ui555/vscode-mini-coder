@@ -4,6 +4,136 @@
 
 ---
 
+## [0.4.0] — 2026-10-26
+
+**这一版的关键词：让项目从"能跑"变成"能被验证"。**
+
+0.3.x 把功能做到了「能用」，但有三件事说不清楚：
+**没有 CI**（测试全靠手动跑）、**没有架构文档**（1.2 万行代码没画过图）、
+**评测集饱和**（23 道题全档位 100%，尺子量不出差别）。
+
+这一版补的正是这三样 —— 外加三件 2026 年 agent 岗面试必问的能力：
+多步任务状态管理、子智能体上下文隔离、运行时可观测。
+
+### 新增
+
+- ⭐⭐⭐ **GitHub Actions CI**（`.github/workflows/ci.yml`）：
+  - `test` job：**Linux + Windows 双平台矩阵**。Windows 必须测 ——
+    本项目有三个只在 Windows 上暴露的真实问题（cmd.exe 的 GBK 编码报错、
+    SIGKILL 兜底、PATHEXT 解析），Linux 矩阵测不出来。
+  - `guard` job：跑架构守卫（见下）。
+  - `eval-smoke` job：只跑 2 道题（约 ¥0.11），验证评测链路没断。
+    fork 的 PR 没有 Secret 时自动跳过，不花钱。
+  - `package` job：校验 VSIX 里没有泄漏的文件。
+  - 每天 UTC 18:00（北京次日 02:00）自动跑一次全量评测。
+- ⭐⭐⭐ **架构守卫脚本**（`scripts/checkProject.js`，零依赖纯 Node）：
+  7 项检查 —— provider 名单与枚举同步、工具注册表与 `ALL_TOOL_NAMES` 同步、
+  单文件行数上限（800）、`.vscodeignore` 排除/保留项齐全、
+  每道题必须有标准答案、源码里没有疑似真实密钥、迭代上限单一真相源。
+  **守卫自己也有单测**，并且它抓到过两个真实的 bug（见下）。
+- ⭐⭐⭐ **`ARCHITECTURE.md`**：数据流图（Mermaid）、模块地图、
+  **六个关键设计决策**（每个都写"为什么不用更简单的做法"）、
+  协议约束速查表（哪些消息序列是非法的）、
+  **扩展指南**（怎么加新工具 / 新 Operation / 新 Provider）。
+- ⭐⭐ **主循环管线化**（`src/agent/operations/`）：
+  `loop.ts` 从 **1075 行降到 211 行**，拆成 11 个 Operation，
+  每个只干一件事、返回三态（`not_applicable` / `applied` / `yielded`）。
+  **新增能力 = 往管线数组里加一项**，不用改主循环。
+  借鉴 goose 的 `operation.rs` + `machine.rs`。
+- ⭐⭐ **待办清单（Todo）**：状态存 session（不是内存）、每轮**重建**注入上下文、
+  压缩不丢、UI 三态渲染（☐ / ▶ / ☑）+ 进度条。
+- ⭐⭐ **子智能体（delegate）**：独立上下文 + **只读工具集物理约束**
+  （不是靠提示词说"你别改文件"——模型不听提示词）+ 中间过程不进父上下文 +
+  中断透传（用户点停止，子 agent 一起停）。
+- ⭐ **用户插话（steering）**：agent 干活时用户补一句，它听到但不停手。
+  借鉴 goose 的 `ops_steer.rs`。
+- ⭐ **运行时调用链追踪**（`src/observability/spans.ts`，183 行）：
+  字段名严格对齐 **OpenTelemetry GenAI 语义约定**（`gen_ai.*`），
+  以后接 Langfuse / Arize / Phoenix 不用重命名。
+  - ⭐ **prompt 内容默认不入 trace**（要开必须显式设 `MINI_CODER_TRACE_CONTENT=1`）——
+    借鉴 goose 的 `CAPTURE_MESSAGE_CONTENT_ENV`。
+    默认把用户源码写进日志文件等于把代码抄一份到磁盘上。
+  - `/traces` 命令（聊天框里）+ `Mini-Coder: 查看调用链追踪`（命令面板）。
+- ⭐ **提示注入防线**（`src/agent/trust.ts`）：所有工具输出统一包
+  `<untrusted_content>` 标记 + system prompt 全局规则。
+  **信任边界打在管线出口**（不是各工具内部）—— 见下方"修复"里的说明。
+- ⭐ **打包守卫**（`scripts/checkPackage.js`）：断言 VSIX 里没有
+  `eval/` `src/` `webview-ui/` `out/__tests__/` 等不该给用户的东西，
+  必需文件齐全。
+- **评测扩容 23 → 30 道**：
+  - **41-44 规模型**（`41-hard-scale-callgraph` / `42-hard-scale-reexport` /
+    `43-hard-scale-monorepo` / `44-hard-scale-perf-behavior`）——
+    40-72 个文件的合成代码库，让**规模**成为瓶颈而不是让陷阱成为瓶颈
+    （这是消融实验直接给出的下一步方向）。
+  - **45-47 新功能型**（`45-hard-todo-multistep` / `46-hard-delegate-context` /
+    `47-adversarial-prompt-injection`）—— 专门测这一版新加的三个能力。
+  - **27 道原本缺标准答案的题全部补齐**（`eval/oracles/`），
+    现在 **30/30 道题 100% 覆盖**，`npm run eval:solvable` 全绿。
+- **`/traces`、`/skills` 等 11 个 slash command**（原来 10 个）。
+- **扩展指南**（`ARCHITECTURE.md` 第 6 节）—— 别人照着就能加新工具。
+
+### 修复
+
+- ⭐⭐⭐ **用户的 Stop hook 从来没跑起来过**（`src/agent/hooks/manager.ts`）：
+  执行器签名是 `runStop(response, cwd, iteration)`，
+  而主循环传的是 `runStop(response, iteration)` ——
+  **轮次号被当成工作区路径传给了 `spawn`**，Node 抛 `ERR_INVALID_ARG_TYPE`。
+  也就是说这个功能上线以来一次都没成功运行过。
+  同批修掉的还有：`runPreToolUse` / `runPostToolUse` 漏传 cwd
+  （undefined → 继承扩展宿主目录而不是用户工作区）、`iteration` 从未传给任何 hook。
+- ⭐⭐⭐ **上下文压缩会把待办状态压掉**（`src/agent/operations/contextGuard.ts`）：
+  压缩会把所有"纯对话消息"送去总结并标记为模型不可见，
+  而待办状态是 `role: 'system'` 的消息，正好落在这个分类里。
+  更麻烦的是 `filterForModel` 会**永久**过滤掉这类消息 ——
+  **压缩一次之后，模型就再也看不到待办状态了**，多步任务必然从头再来。
+  修法是加了一个通用机制：消息打 `pinned: true` 就永不参与压缩
+  （比喻：白板上的"本季度目标"不会被保洁擦掉）。
+  为了确认修复真的有效，**先把修复回退掉跑了一遍测试确认会红**，再装回去。
+- ⭐⭐ **VSIX 里混进了 633KB 的编译后测试代码**：
+  `out/__tests__/` 没被排除。那些文件里有几条**故意伪造的假密钥**
+  （测脱敏逻辑用的），vsce 的密钥扫描器认不出来真假，直接**拒绝打包**。
+  根因更深一层：vsce 的匹配语义**不是** gitignore 语义 ——
+  任何一条 `!` 规则命中就无条件包含，`!out/**` 这种"整目录保底"是毒药。
+  已在 `.vscodeignore` 写清真实规则。
+- ⭐⭐ **打包体积 1.64MB → 0.35MB**（88 个文件）。
+- ⭐ **`npm install` 装不上**：`vitest@5` 要求 `@types/node >= 22`，
+  而项目锁在 `^20.0.0`，npm 直接报 ERESOLVE 拒绝安装。
+  现在 `@types/node` 升到 `^22`、**`npm ci` 可用**（CI 走的就是这条路）。
+- ⭐ **`@types/vscode` 与 `engines.vscode` 版本对不上**，vsce 拒绝打包。
+  实测代码用 1.86 的类型**零改动**编译通过 → 说明本来就没用更新的 API，
+  1.86 就是诚实的下限，已对齐。
+- ⭐ **打包守卫在 Windows 上跑不起来**（`spawnSync npx ENOENT`——
+  Windows 的 npx 实际是 `npx.cmd`）。
+- ⭐ **架构守卫自己崩了**（`Cannot access 'readOnlyNames' before initialization`——
+  `const` 的暂时性死区，声明写在了使用之后）。
+- ⭐ **`delegate` 的循环依赖改成【注入】而不是懒加载**：
+  原来在 `delegate.ts` 里 `require('../loop')` 来躲开
+  `loop.ts → operations → toolExecution → tools/delegate → loop.ts` 这个环。
+  懒加载的代价是 **vitest 里直接报 "Cannot find module '../loop'"**
+  （Node 的 CJS 解析器不认 `.ts`），而且依赖方向变成"运行时才知道"。
+  现在改成 **loop.ts 在构造时把 AgentLoop 注入给 delegate** ——
+  依赖方向单向，测试能跑真东西，代码也更能说明谁依赖谁。
+
+### 已知限制（诚实记录）
+
+- **评测 pass rate 目前仍是 100%**（23 题时点）。41-47 这 7 道新题是专门为了
+  把 pass rate 压下来设计的，但**还没真跑过**（真跑要花钱）。
+  目标区间是 70-85% —— 太高说明送分卷，太低说明题太难。
+- **规模型题目的"规模"在本框架里不是一道硬墙**：
+  `glob` 能给全文件清单、`read_file` 还能并行批处理，
+  真正的墙是 **20 轮 + 180 秒**的预算，不是上下文窗口。
+  这已在 `eval/ABLATION.md` 里如实记录，并给出了下一步方向
+  （把"必须逐个检查的文件数"顶穿 20 轮预算）。
+- 上下文治理里，"Effect 式落盘 + 任意一步重放"（goose 的做法）没有实现 ——
+  当前的 checkpoint 是**文件级快照 + 工具级进度**，粒度更粗。
+- 完整 Provider 矩阵没做（4 个主流够用，加 provider 只改一张表）。
+- **`src/webview/panel.ts` 覆盖率是 0%**（637 行，全是 IO 胶水层：
+  postMessage 编解码 + 会话读写 + 审批弹窗）。
+  这层目前靠集成测试和人工点验兜着，是已知的测试盲区。
+  覆盖率数字只统计 `src/`，`webview-ui/` 前端同样没有自动化测试覆盖。
+
+---
+
 ## [0.3.1] — 2026-10-25
 
 **真实项目验证：用插件审一个真的中型项目，当场暴露并修掉 3 个 bug**
