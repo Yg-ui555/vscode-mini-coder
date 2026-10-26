@@ -55,9 +55,10 @@ describe('parseSlashCommand', () => {
 describe('listSlashCommands', () => {
   // 2026-10-21 新增 /undo（撤销 AI 改动）和 /sessions（历史会话），6 → 8
   // 2026-10-22 新增 /skills（列出技能包），9 → 10
-  it('should return all 10 built-in commands', () => {
+  // 2026-10-26 新增 /traces（调用链追踪），10 → 11
+  it('should return all 11 built-in commands', () => {
     const cmds = listSlashCommands();
-    expect(cmds.length).toBe(10);
+    expect(cmds.length).toBe(11);
   });
 
   it('should include expected command names', () => {
@@ -73,6 +74,8 @@ describe('listSlashCommands', () => {
     expect(names).toContain('sessions');
     // ⭐ 技能包：让用户能看到并使用 .agents/skills 机制
     expect(names).toContain('skills');
+    // ⭐ 调用链追踪：OpenTelemetry 风格的 span 树
+    expect(names).toContain('traces');
   });
 
   it('should include description for each command', () => {

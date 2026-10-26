@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Message, MessageItem } from './Message';
+import { TodoList } from './TodoList';
 
 // VS Code 在 Webview 里注入 vscode 全局对象
 declare const vscode: {
@@ -27,6 +28,12 @@ interface SlashCmd {
   name: string;
   description: string;
   argsHint?: string;
+}
+
+interface Todo {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
 }
 
 interface Toast {
@@ -46,6 +53,7 @@ export function ChatPanel() {
   const [slashCommands, setSlashCommands] = useState<SlashCmd[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [usage, setUsage] = useState<string>('');
+  const [todos, setTodos] = useState<Todo[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toastIdRef = useRef(0);
 
@@ -62,6 +70,10 @@ export function ChatPanel() {
         // ⭐ 上下文用量：让用户看得见"还剩多少"，也是省钱的心理暗示
         case 'usage':
           setUsage(msg.content || '');
+          break;
+        // ⭐ 待办清单：agent 更新进度时推过来的
+        case 'todo':
+          setTodos(msg.todos || []);
           break;
         case 'text':
           setMessages((prev) => {
@@ -149,6 +161,7 @@ export function ChatPanel() {
           // 新会话：清空界面消息（扩展端也会清掉它那边的历史）
           setMessages([]);
           setIsStreaming(false);
+          setTodos([]);
           break;
       }
     };
@@ -176,6 +189,22 @@ export function ChatPanel() {
     } else {
       vscode.postMessage({ type: 'user_input', content: text });
     }
+  }
+
+  // ⭐ 插话：agent 正在干活时补充一句指令
+  //
+  //   和"停止"的区别：
+  //     停止 → 中断整个任务，已完成的部分保留，但要重新说下一步
+  //     插话 → 不打断，消息排队，等当前这批工具跑完注入下一轮
+  //
+  //   比喻：秘书正在写稿，老板说"这句改一下"——
+  //   秘书不推倒重写，而是记下来在下一个停顿处改。
+  function handleSteer() {
+    const text = input.trim();
+    if (!text) return;
+    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    setInput('');
+    vscode.postMessage({ type: 'steer', content: text });
   }
 
   // ⭐ 停止：以前 Agent 一旦跑飞，用户只能关掉整个 VS Code
@@ -219,6 +248,8 @@ export function ChatPanel() {
       )}
 
       <div className="messages">
+        {/* ⭐ 待办清单：固定在对话上方，实时显示多步任务进度 */}
+        <TodoList todos={todos} />
         {messages.length === 0 && (
           <div className="empty">
             <h3>👋 你好，我是 Mini-Coder</h3>
@@ -255,15 +286,35 @@ export function ChatPanel() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          placeholder="输入任务（如：把 main.py 改成 async），或 /test /commit /undo /notes /doctor"
-          disabled={isStreaming}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || e.shiftKey) return;
+            // ⭐ 正在跑的时候 Enter 是【插话】，不是【发送】
+            //   —— 发新任务会打断当前任务，而插话是排队生效。
+            if (isStreaming) handleSteer();
+            else handleSend();
+          }}
+          placeholder={
+            isStreaming
+              ? '补充一句指令（排队生效，不打断当前任务）…'
+              : '输入任务（如：把 main.py 改成 async），或 /test /commit /undo /notes /doctor'
+          }
         />
         {isStreaming ? (
           // ⭐ 停止按钮：Agent 跑飞时用户唯一的自救手段
-          <button className="stop-btn" onClick={handleStop} title="中断当前任务">
-            ⏹ 停止
-          </button>
+          <>
+            <button className="stop-btn" onClick={handleStop} title="中断当前任务">
+              ⏹ 停止
+            </button>
+            {/* ⭐ 插话按钮：不停手，只是补一句 */}
+            <button
+              className="steer-btn"
+              onClick={handleSteer}
+              disabled={!input.trim()}
+              title="补充一句指令，排队到下一轮生效（不打断当前任务）"
+            >
+              💬 插话
+            </button>
+          </>
         ) : (
           <button onClick={handleSend} disabled={!input.trim()}>
             发送

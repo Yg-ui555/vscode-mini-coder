@@ -276,6 +276,23 @@ const COMMANDS: SlashCommand[] = [
       };
     },
   },
+  {
+    name: 'traces',
+    description: '查看本次会话的调用链（每次 LLM / 工具调用花了多久、多少 token）',
+    argsHint: '[clear]',
+    handler: async (ctx, args) => {
+      const { renderTracesReport } = require('../commands/traces');
+      const { getSpanRecorder } = require('../observability/spans');
+
+      // /traces clear —— 清空记录
+      if (args[0]?.toLowerCase() === 'clear') {
+        getSpanRecorder().clear();
+        return { message: '✓ 追踪记录已清空', success: true };
+      }
+
+      return { message: renderTracesReport(), success: true };
+    },
+  },
 ];
 
 function postStatus(ctx: SlashContext, status: string) {

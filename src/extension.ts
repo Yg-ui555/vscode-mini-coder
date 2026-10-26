@@ -17,6 +17,7 @@ import { setBuiltinStopCheck } from './agent/hooks/manager';
 import { ChatPanel } from './webview/panel';
 import { registerDoctor } from './commands/doctor';
 import { registerSessionCommands } from './commands/sessions';
+import { registerTracesCommand } from './commands/traces';
 import {
   loadApprovalTier,
   registerPermissionCommands,
@@ -90,6 +91,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ⭐ 注册会话管理命令（恢复历史 / 列出历史）
   registerSessionCommands(context);
+
+  // ⭐ 注册调用链追踪命令（OpenTelemetry 风格的 span 树）
+  //   跟 slash command `/traces` 共用同一套渲染。
+  registerTracesCommand(context);
+
   context.subscriptions.push(
     vscode.commands.registerCommand('mini-coder.reloadSession', () => {
       ChatPanel.currentPanel?.reloadFromDisk();
