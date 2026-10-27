@@ -6,8 +6,12 @@
 >
 > **数据都是实测的**，不是估计值。统计口径：
 > `src/` 下非测试 `.ts` 文件 **84 个 / 17,548 行**；
-> `src/__tests__/` 下测试 **38 个文件 / 7,917 行**；
-> `webview-ui/src/` **1,002 行**。
+> `src/__tests__/` 下测试 **37 个文件 / 7,574 行**；
+> `webview-ui/src/` **995 行**（6 个文件，含 styles.css 479 行）。
+>
+> 口径说明：行数按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
+> 用 `Measure-Object -Line` 会得到 14,492 行——它不计空行，低估 17%。
+> 复现命令见 `docs/RESUME.md`。
 
 ---
 
@@ -184,7 +188,7 @@ messages 里有一大坨历史
 | 模块 | 职责 | 关键文件 | 规模 |
 |---|---|---|---|
 | **agent/** | Agent 运行时（纯逻辑） | `loop.ts` | 211 行 |
-| ├ operations/ | 主循环拆成的 11 个 Operation | `types.ts` `index.ts` | 1,505 行 |
+| ├ operations/ | 主循环拆成的 **9 个 Operation**（+ types.ts / index.ts 共 11 个文件） | `types.ts` `index.ts` | 1,505 行 |
 | ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | — |
 | ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` | — |
 | ├ todo/ | 待办清单状态（内存 + session 持久化） | `store.ts` | — |
@@ -193,7 +197,7 @@ messages 里有一大坨历史
 | ├ visibility.ts | 双可见性（模型视图 / 用户视图） | `visibility.ts` | — |
 | ├ trust.ts | 不可信数据边界（提示注入防护） | `trust.ts` | 155 行 |
 | **webview/** | 扩展 ↔ Webview 的消息编解码 | `panel.ts` | 637 行 |
-| **webview-ui/** | React 前端（聊天、待办、插话） | `components/` | 1,002 行 |
+| **webview-ui/** | React 前端（聊天、待办、插话） | `components/` | 995 行 |
 | **session/** | 会话持久化 + 中断续跑 | `store.ts` `resume.ts` | 687 行 |
 | **observability/** | OTel 风格 span 记录器 | `spans.ts` | 183 行 |
 | **commands/** | 命令面板命令 | `doctor.ts` `traces.ts` `sessions.ts` `permissions.ts` | 731 行 |
@@ -487,7 +491,7 @@ expect(r.status).toBe('applied');
 
 | 手段 | 位置 | 作用 |
 |---|---|---|
-| 单元测试 | `src/__tests__/`（38 文件 / 7,917 行） | 行为回归 |
+| 单元测试 | `src/__tests__/`（37 文件 / 7,574 行） | 行为回归 |
 | 架构守卫 | `scripts/checkProject.js` | provider 枚举同步、工具名同步、单文件行数上限（800）、每题必须有 oracle、源码无疑似密钥、迭代上限单一真相源 |
 | 打包守卫 | `scripts/checkPackage.js` | VSIX 里不许出现 `eval/` `src/` `webview-ui/` 等 |
 | CI | `.github/workflows/ci.yml` | Linux + Windows 矩阵跑测试；评测冒烟（2 题，约 ¥0.11）；打包产物校验；每天凌晨全量评测 |

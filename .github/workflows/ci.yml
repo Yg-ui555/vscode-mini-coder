@@ -37,9 +37,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # ⚠️ 2026-10-27 修正：原来写的是 [main]，但本仓库默认分支是 master
+    #    （origin/HEAD -> origin/master）。写错分支名 = push 永远不会触发 CI。
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   # 每天 UTC 18:00（北京时间次日 02:00）跑一次全量评测
   # —— 这是"agent 产品的 CI"：不是测代码有没有坏，是测能力有没有退化。
   schedule:
@@ -47,8 +49,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # ⚠️ 为什么 group 里要带 github.workflow_name：
+  #    原来 group 只有 ref，导致【定时评测会被 push 触发的任务取消掉】。
+  #    定时评测要跑 8 分钟，如果这期间有人 push，评测就白跑了。
+  #    现在用 workflow_name 区分，不同类型互不取消；
+  #    同一类型内部（连续两次 push）仍然取消旧的，节省 CI 配额。
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   # ⚠️ 为什么是 22（而不是 18）：

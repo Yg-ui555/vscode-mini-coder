@@ -73,11 +73,18 @@ docs/**
 coverage/**
 ROADMAP.md
 ROADMAP_V2.md
+ROADMAP_V3.md
 PROJECT.md
 RUN.md
 VISION.html
 vsce-files.txt
 *.vsix
+
+#   AGENTS.md  —— 给 AI 协作者的说明书（开发期文档）
+#   ⚠️ 注意：插件【运行时】加载的是【用户工作区根目录】的 AGENTS.md，
+#      不是扩展安装目录里的这份。所以打包它没有任何功能作用，
+#      纯开发文档，排除掉更干净。
+AGENTS.md
 
 # ── ⭐ out/ 里面也有不该发的 ─────────────────────────────────
 #   out/__tests__/  编译后的测试代码（72 个文件 / 633 KB）
