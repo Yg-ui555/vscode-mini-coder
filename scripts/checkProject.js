@@ -236,6 +236,72 @@ function checkFileSize() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+ * 3. MCP 工具命名规范
+ *
+ * MCP 工具是【运行时注册】的（服务器起来了才有），
+ * 所以它们不在 ALL_TOOL_NAMES 里 —— 那是内置工具的名单。
+ *
+ * 但命名规范必须守住：mcp__<服务器名>__<工具名>
+ *
+ * 为什么重要：
+ *   · 防重名 —— 两个 MCP 服务器都可能提供 read_file
+ *   · 模型能看出工具来自哪个服务器
+ *   · resolveAlias() 靠命名空间把模型写错的名字纠正回来
+ *     （而且【前缀是信任边界】：mcp__ 前缀的工具一律按"外部程序"处理，
+ *      不会因为名字像内置只读工具就被自动放行）
+ *
+ * 教训（2026-10-27 接入 MCP 时踩的）：
+ *   resolveAlias() 里那个"带命名空间前缀"的分支本来是【坏的】——
+ *   它拿规范化后的 key 去 split('__')，而规范化已经把下划线去掉了，
+ *   所以永远切不开。已修（registry.ts）。
+ * ═══════════════════════════════════════════════════════════════ */
+function checkMcpNaming() {
+  const CHECK = 'mcp-naming';
+
+  const mcpToolSrc = readText('src/agent/mcp/mcpTool.ts');
+  const mcpDir = path.join(SRC, 'agent', 'mcp');
+
+  // MCP 工具名必须由 mcp__<server>__<tool> 拼出来
+  if (!/mcp__\$\{serverName\}__/.test(mcpToolSrc)) {
+    err(
+      CHECK,
+      'src/agent/mcp/mcpTool.ts 里没有找到 mcp__${serverName}__ 的命名拼接。' +
+        '→ MCP 工具名必须带命名空间，否则会和内置工具重名、且失去信任边界。',
+    );
+  }
+
+  // MCP 工具不能进 ALL_TOOL_NAMES（那是内置工具的静态名单）
+  const factorySrc = readText('src/agent/tools/factory.ts');
+  const allNamesBlock = factorySrc.slice(
+    factorySrc.indexOf('export const ALL_TOOL_NAMES'),
+  );
+  if (/mcp__/.test(allNamesBlock)) {
+    err(
+      CHECK,
+      'ALL_TOOL_NAMES 里出现了 mcp__ —— MCP 工具是运行时动态注册的，' +
+        '不该出现在内置工具的静态名单里。',
+    );
+  }
+
+  // MCP 模块的每个文件都要在 800 行上限内（复用 file-size 的判定标准）
+  if (fs.existsSync(mcpDir)) {
+    for (const f of listFiles(mcpDir).filter((x) => x.endsWith('.ts'))) {
+      const lines = fs.readFileSync(f, 'utf-8').split('\n').length;
+      if (lines > MAX_FILE_LINES) {
+        err(
+          CHECK,
+          `${path.relative(ROOT, f).replace(/\\/g, '/')} 有 ${lines} 行，超过上限 ${MAX_FILE_LINES}。`,
+        );
+      }
+    }
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, 'MCP 工具命名规范正确（mcp__<server>__<tool>）');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
  * 4. .vscodeignore 排除项完整
  *
  * vsce 只读 .vscodeignore，不读 .gitignore。
@@ -421,6 +487,7 @@ function main() {
   const checks = [
     checkProviderEnum,
     checkToolRegistry,
+    checkMcpNaming,
     checkFileSize,
     checkVscodeignore,
     checkEvalOracles,

@@ -1,0 +1,46 @@
+{
+  "//": [
+    "⭐ MCP 服务器配置示例（把这份复制成 .vscode/mini-coder-mcp.json 就能用）",
+    "",
+    "配置位置（后者覆盖前者）：",
+    "  · 工作区级：<工作区>/.vscode/mini-coder-mcp.json  ← 复制这份文件到这里",
+    "  · 全局级：  <globalStorage>/mcp.json                   ← 换仓库也保留",
+    "",
+    "⚠️ 安全提醒：",
+    "  command + args 会被【真的执行成本地进程】。",
+    "  只写你信任的服务器 —— 这是你自己写的配置，但服务器会拿到你的文件系统权限。",
+    "",
+    "⚠️ 变量替换只支持 ${workspaceFolder} 这一个：",
+    "  不支持任意表达式（那样就等于允许命令注入）。"
+  ],
+
+  "servers": [
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "ROOT": "${workspaceFolder}"
+      },
+      "timeoutMs": 30000
+    },
+
+    {
+      "name": "memory",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+
+    {
+      "//": "显式禁用某个服务器（enabled: false）",
+      "name": "disabled-example",
+      "command": "npx",
+      "args": ["-y", "some-package"],
+      "enabled": false
+    }
+  ]
+}

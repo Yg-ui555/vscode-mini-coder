@@ -43,10 +43,12 @@ export { createReadOnlyRegistry, SUBAGENT_READONLY_TOOLS };
  *
  * @param opts.exclude 消融：把指定工具【摘掉】
  * @param opts.include 白名单：只注册这些工具
+ * @param opts.extraTools 额外工具（⭐ MCP 工具从这儿进来）
  */
 export function createDefaultRegistry(opts?: {
   exclude?: string[];
   include?: string[];
+  extraTools?: Tool[];
 }): ToolRegistry {
   const registry = new ToolRegistry();
 
@@ -101,6 +103,22 @@ export function createDefaultRegistry(opts?: {
 
   // 执行组：能力最大，破坏性最高
   register(new RunShellTool());
+
+  // ── ⭐ 额外工具组（MCP）─────────────────────────────────
+  //
+  //   为什么放在最后：
+  //     · 内置工具的顺序是【精心排过的】（只读在前 → 选对工具 + prompt cache）
+  //     · MCP 工具是用户自己配的，数量和顺序都不受我们控制
+  //     · 放最后 = 不破坏前 11 个工具的稳定顺序 → prompt cache 仍然命中
+  //
+  //   为什么用 extraTools 而不是"注册表做成全局单例"：
+  //     评测沙箱（src/eval/runner.ts）也调 createDefaultRegistry()，
+  //     如果 MCP 工具是全局的，评测就会带上用户本机的 MCP 工具 ——
+  //     评测结果立刻变得不可复现（不同人跑出不同分数）。
+  //     所以必须【显式传进去】：产品路径传，评测路径不传。
+  for (const t of opts?.extraTools ?? []) {
+    register(t);
+  }
 
   return registry;
 }

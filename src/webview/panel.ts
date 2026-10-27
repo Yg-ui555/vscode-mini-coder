@@ -16,6 +16,7 @@ import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
 import { ToolRegistry } from '../agent/tools/registry';
 import { createDefaultRegistry } from '../agent/tools/factory';
+import { getMcpTools } from '../agent/mcp/manager';
 import { ContextBuilder } from '../agent/context';
 import { MAX_ITERATIONS } from '../agent/limits';
 import {
@@ -266,7 +267,9 @@ export class ChatPanel {
     info(`Provider：${configured.config.baseUrl} / ${configured.config.defaultModel}`);
 
     // 工具集由工厂统一提供（与评测沙箱、AI 修测试共用同一份定义）
-    const registry = createDefaultRegistry();
+    // ⭐ MCP 工具从 extraTools 进来 —— 显式传，不做成全局单例，
+    //   这样评测沙箱不会带上用户本机的 MCP 工具（评测必须可复现）。
+    const registry = createDefaultRegistry({ extraTools: getMcpTools() });
     info(`已加载 ${registry.names.length} 个工具：${registry.names.join(', ')}`);
 
     // ⭐ 迭代上限从单一真相源取，不再硬编码

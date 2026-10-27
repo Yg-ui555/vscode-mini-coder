@@ -24,6 +24,15 @@ import {
 } from './commands/permissions';
 import { resetApprovals } from './agent/tools/approval';
 import { setWorkspaceRoot } from './agent/tools/paths';
+import {
+  McpManager,
+  setMcpManager,
+  getMcpManager,
+} from './agent/mcp/manager';
+import {
+  collectMcpConfigs,
+  GLOBAL_MCP_CONFIG,
+} from './agent/mcp/config';
 import { initLogger, info, error as logError, getAllLogs, clearLogs } from './logger';
 
 let configManager: ConfigManager;
@@ -45,6 +54,58 @@ export async function activate(context: vscode.ExtensionContext) {
   // ⭐ 三档权限：先把设置里的档位读进权限模块，
   //   否则用户在设置界面/状态栏切了档，工具层根本不知道。
   loadApprovalTier(context);
+
+  // ─────────────────────────────────────────────────────────
+  // ⭐⭐ 启动 MCP 服务器
+  //
+  //   MCP（Model Context Protocol）= 让 agent 接入外部工具的统一标准。
+  //   本项目只做 stdio 传输（本地进程），覆盖 VS Code 生态里
+  //   绝大多数本地 MCP server（filesystem / git / postgres …）。
+  //
+  //   配置来源（后者覆盖前者）：
+  //     · <globalStorageUri>/mcp.json          —— 换仓库也保留
+  //     · <workspaceRoot>/.vscode/mini-coder-mcp.json —— 团队共享（提交进 git）
+  //
+  //   ⚠️ 设计原则：【一个服务器挂掉不能影响其他的】
+  //     比喻：外卖少点一家，不影响吃饭。
+  //     用户装了个 MCP 结果 agent 都不能用了，比不装还糟。
+  //
+  //   ⚠️ 启动失败【不阻塞激活】—— MCP 是可选增强，不是必需品。
+  // ─────────────────────────────────────────────────────────
+  const mcpManager = new McpManager();
+  setMcpManager(mcpManager);
+  context.subscriptions.push({
+    dispose: () => {
+      void mcpManager.stopAll();
+    },
+  });
+
+  const mcpConfigs = collectMcpConfigs(
+    wsRoot ?? null,
+    context.globalStorageUri.fsPath
+      ? `${context.globalStorageUri.fsPath}/${GLOBAL_MCP_CONFIG}`
+      : undefined,
+  );
+
+  if (mcpConfigs.length === 0) {
+    info('MCP：未配置任何服务器（可在 .vscode/mini-coder-mcp.json 里配置）');
+  } else {
+    try {
+      const results = await mcpManager.startAll(mcpConfigs);
+      const ok = results.filter((r) => r.ok);
+      const failed = results.filter((r) => !r.ok);
+      const toolCount = ok.reduce((n, r) => n + r.toolCount, 0);
+      info(
+        `MCP：${ok.length}/${results.length} 个服务器启动成功，提供 ${toolCount} 个工具`,
+      );
+      for (const f of failed) {
+        info(`MCP：服务器 "${f.name}" 启动失败（已跳过）—— ${f.error}`);
+      }
+    } catch (e: any) {
+      // MCP 启动失败绝不能影响扩展激活
+      logError(`MCP 启动异常（已忽略）: ${e?.message || e}`);
+    }
+  }
 
   // 注册 3 个特色
   registerAutoTest(context, configManager);
@@ -195,4 +256,7 @@ export function deactivate() {
   // 清掉本次会话的写操作授权记录，避免下次启动还残留
   resetApprovals();
   ChatPanel.currentPanel?.dispose();
+  // ⭐ MCP 服务器的子进程要杀掉 —— 否则会留下孤儿 node 进程
+  void getMcpManager()?.stopAll();
+  setMcpManager(null);
 }

@@ -67,8 +67,14 @@ export class ToolRegistry {
       if (k === target) return key;
       // 带 functions_ / tools_ 前缀
       if (k.replace(/^(functions|tools)_/, '') === target) return key;
-      // 带命名空间前缀（xxx__yyy）
-      if (k.split('__').pop() === target) return key;
+      // ⭐ 带命名空间前缀（xxx__yyy）
+      //
+      //   ⚠️ 这里必须用【原始 key】切，不能用规范化后的 k ——
+      //   norm() 把下划线全去掉了，'mcp__fake__echo' 变成 'mcpfakeecho'，
+      //   split('__') 就再也切不开，这一分支【永远匹配不到】。
+      //   （2026-10-27 接入 MCP 时发现的原有 bug —— 命名空间工具名无法被纠正）
+      const parts = key.split('__');
+      if (parts.length > 1 && norm(parts[parts.length - 1]) === target) return key;
     }
     return null;
   }
