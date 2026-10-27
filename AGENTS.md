@@ -111,14 +111,13 @@ A 题的待办漏进 B 题，评测结果就废了，而且**极难排查**。
 
 **怎么做**：
 ```powershell
-npm run eval        # 全量 30 题，约 ¥3.9
-git add eval/results.json eval/RESULTS.md
+npm run eval        # 全量 30 题，约 ¥7.3
+git add eval/RESULTS.md
 ```
 
-> **把 `results.json` 提交进 git 是有意的**：
-> 这样 `git log -p eval/results.json` 就是一条**能力曲线**，
-> 面试官可以自己翻看你每一次优化的效果。
-> 这是 goose 和 nanobot 都没有的东西（nanobot 根本没有评测框架）。
+> ⚠️ **只提交 `eval/RESULTS.md`，不要提交 `eval/results.json`** ——
+> 后者在 `.gitignore` 里（它每次跑都会变，280KB 的原始数据进版本库没有意义）。
+> `RESULTS.md` 是整理过的对外基线数字，才是该被跟踪的那个。
 
 ---
 

@@ -157,9 +157,12 @@ npm run eval
    要问"为什么"——通常是工具重复调用打转。
 3. **有没有回归？** `regressed` 必须是 0。
 
-> **一个纪律**：**每次改动 agent 行为后，都要重跑一次全量评测并把 `results.json`
-> 一起提交**。这样 `git log` 本身就是"优化历史"，面试官可以 `git log -p eval/results.json`
-> 看到你的能力曲线。**这是 goose 和 nanobot 都没有的东西**——nanobot 根本没有评测框架。
+> **一个纪律**：**每次改动 agent 行为后，都要重跑一次全量评测并把 `eval/RESULTS.md`
+> 一起提交**。这样 `git log -p eval/RESULTS.md` 就是一条**能力曲线**，
+> 面试官可以自己翻看你每一次优化的效果。
+> ⚠️ 注意 `eval/results.json`（280KB 原始数据）在 `.gitignore` 里 —— 它每次跑都变，
+> 进版本库没意义。**跟踪的是整理过的 `RESULTS.md`，这两个不是一回事。**
+> **这是 goose 和 nanobot 都没有的东西**——nanobot 根本没有评测框架。
 
 **验收标准**：
 - [ ] `eval/RESULTS.md` 和 `eval/results.json` 的 `total` = 30
@@ -286,7 +289,7 @@ VS Code AI 编程助手。ReAct Agent 运行时 + 自研回归检测评测体系
   原因：评测时多题并发会串味。跨步骤共享放 ctx.state。
   位置：src/agent/operations/types.ts 的 OperationContext
 
-**Rule 5：改了 agent 行为，必须重跑 npm run eval 并提交 eval/results.json。**
+**Rule 5：改了 agent 行为，必须重跑 npm run eval 并提交 eval/RESULTS.md。**
   原因：这个项目卖的是"可验证"。没有评测数据 = 没有证据。
 
 ## 架构速览
