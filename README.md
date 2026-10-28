@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml)
 [![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%2093%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
-[![VSIX](https://img.shields.io/badge/VSIX-0.38%20MB-brightgreen)](ARCHITECTURE.md)
+[![VSIX](https://img.shields.io/badge/VSIX-0.40%20MB-brightgreen)](ARCHITECTURE.md)
 
 ---
 
