@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as os from 'os';
+import * as path from 'path';
 import { RunShellTool } from '../../agent/tools/runShell';
 
 const tool = new RunShellTool();
@@ -64,12 +65,39 @@ describe('RunShellTool', () => {
 
   it('working_dir 在工作区外 → 被拒绝（路径白名单）', async () => {
     // ⭐ 安全约束：LLM 不能让命令跑在工作区之外
-    //   （用 C:/Windows 当 working_dir 就等于给了它跳出沙箱的路）
+    //   （用系统目录当 working_dir 就等于给了它跳出沙箱的路）
+    //
+    // ⚠️ 必须用【当前平台上真实存在】的越界目录（2026-10-28 修 CI 红）：
+    //   原来这里写死 'C:/Windows'。可是在 Linux 上
+    //   path.isAbsolute('C:/Windows') 是 false —— 它会被当成【相对路径】
+    //   解析进工作区里，白名单反而放行了，最后炸在 spawn ENOENT 上
+    //   （因为 <工作区>/C:/Windows 这个目录根本不存在）。
+    //   于是测的就不是"白名单拦不拦"，而是"目录存不存在"。
+    //
+    //   现在按平台挑一个【确实存在】的系统目录，两个平台上都满足
+    //   "绝对路径 + 确实在工作区外"，测的才是白名单本身。
+    //
+    //   为什么强调"确实存在"：
+    //   万一白名单哪天坏了，白名单放行 → 命令在系统目录里真的跑起来
+    //   → 测试【红】。如果那个目录压根不存在，spawn 会报 ENOENT，
+    //   结果照样是 isError → 测试【假通过】，等于白测。
+    const systemDir = process.platform === 'win32' ? 'C:\\Windows' : '/etc';
+
     const result = await tool.execute({
       command: 'echo hi',
-      working_dir: 'C:/Windows',
+      working_dir: systemDir,
     });
     expect(result.isError).toBeTruthy();
     expect(result.content).toContain('超出了工作区范围');
+  });
+
+  it('越界目录必须既绝对又在工作区外（守住上面那条测试的前提）', () => {
+    const systemDir = process.platform === 'win32' ? 'C:\\Windows' : '/etc';
+    const resolved = path.resolve(systemDir);
+
+    // 绝对路径 —— 否则会被当成相对路径解析进工作区（这正是 CI 红过的坑）
+    expect(path.isAbsolute(resolved)).toBe(true);
+    // 确实在工作区外 —— 测试里的工作区根是 os.tmpdir()
+    expect(path.relative(os.tmpdir(), resolved).startsWith('..')).toBe(true);
   });
 });

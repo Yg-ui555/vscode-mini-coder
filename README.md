@@ -573,6 +573,41 @@ MCP 的坑**全是静默失败** —— 不报错，只是让 AI 偶尔传错参
 
 ---
 
+## ⭐ 排障：面板白屏能自己查
+
+VS Code 插件最恶心的故障是「**webview 一片空白**」——
+没有 stack trace、没有 error log，屏幕上只有空白，像什么都没发生过。
+
+本项目为此建了一条**自诊断通道**：
+
+| 层 | 做什么 |
+|---|---|
+| webview 内 | 采集 CSP 违规 / 资源 404 / 未捕获异常 / `console.error` / DOM 快照 / 资源加载耗时 |
+| 回传通路 | 主通路走前端 `postMessage`；兜底走 `window.parent.postMessage`（探针**不碰** `acquireVsCodeApi` —— 一个 webview 只能 acquire 一次，抢调会把前端搞崩） |
+| 扩展进程 | 关键事件写日志，完整证据落盘到 `webview-diag.json` |
+| 就绪探针 | 前端 5 秒内没发 `ready` → 记一条**明确的**错误日志 |
+
+没有这条通道时，"面板是白的"在日志里长这样：**什么都没有**。
+有了它之后，长这样：
+
+```
+[INFO] Webview 未就绪：5 秒内没有收到前端发来的 ready 消息。→ 前端脚本【没有执行成功】
+```
+
+> 这套通道救过一个**真实的必现故障**：VS Code 的 Service Worker 版本冲突，
+> 被一条卡死的 Inno Setup 更新锁放大成 100% 复现。
+> 完整复盘见 **[docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md](docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md)** ——
+> 里面连走过的 4 条弯路都写了，尤其是
+> 「**用『日志里没有记录』推断『事情没发生』**」这个教训：
+> `fatal-error` 只弹通知，根本不写日志。
+
+**顺手加的两个小东西**：
+
+- `Ctrl+Alt+Shift+M` 直接打开聊天面板（或点右下角状态栏的 `Mini-Coder`）。
+- `mini-coder.openOnStartup` 设置：启动后自动打开面板，冒烟测试可以无人值守地取证。
+
+---
+
 ## 架构
 
 > 完整版（含数据流图、六个关键设计决策、协议约束速查、扩展指南）见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
@@ -660,6 +695,7 @@ npm run vscode:package      # 产出 VSIX
 | 评测题是不是废题 | `npm run eval:solvable` —— 30 道题**全部**配了人写的标准答案，执行后必须全绿 |
 | 评测集到底在测什么 | [eval/ABLATION.md](eval/ABLATION.md) —— 消融实验 |
 | 最近一次跑出什么结果 | [eval/RESULTS.md](eval/RESULTS.md) |
+| 遇到"面板空白"怎么查 | [docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md](docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md) —— 完整根因链 + 自诊断通道 + 复发自查清单 |
 | 面试怎么答 | [docs/INTERVIEW.md](docs/INTERVIEW.md) —— 12 题问答骨架 |
 
 ### 消融实验：这 5 道题到底在测什么

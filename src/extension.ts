@@ -209,6 +209,25 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  // ⭐ 启动后自动打开聊天面板（2026-10-28）
+  //
+  //   为什么要有这个开关：
+  //     面板是 webview，最难查的故障就是"打开后一片白" ——
+  //     没有 stack trace、没有 error log，屏幕上只有空白。
+  //     有这个开关，冒烟测试和排障就能自动打开面板取证，不用人工点状态栏。
+  //
+  //   两个开关都关时，行为与没装这个扩展完全一致（默认状态）。
+  //   环境变量优先于设置项（CI / 排障时不想改用户设置时用环境变量更方便）。
+  const openOnStartup =
+    vscode.workspace.getConfiguration('mini-coder').get<boolean>('openOnStartup') === true ||
+    process.env.MINI_CODER_AUTOPEN === '1';
+  if (openOnStartup) {
+    setTimeout(() => {
+      info('[autopen] 启动后自动打开 Chat 面板');
+      void vscode.commands.executeCommand('mini-coder.openChat');
+    }, 4000);
+  }
+
   // 注册"一键复制日志"命令（出问题让用户直接粘贴给你）
   context.subscriptions.push(
     vscode.commands.registerCommand('mini-coder.copyLogs', async () => {

@@ -103,7 +103,7 @@ export class ConfigManager {
   constructor(private context: vscode.ExtensionContext) {}
 
   /**
-   * 从项目根目录的 .env 文件读取配置（优先级最高）
+   * 读配置（优先级：项目根 .env 文件 > 进程环境变量）
    *
    * 用途：开发时不用每次 F5 都填 key
    * 安全：.env 已在 .gitignore 里，不会被 commit
@@ -113,14 +113,36 @@ export class ConfigManager {
    *   MINI_CODER_PROVIDER   （minimax / deepseek / openai / ollama）
    *   MINI_CODER_MODEL
    *   MINI_CODER_BASE_URL   ⭐ 之前声明了但没人读，导致无法切换 MiniMax 站点
+   *
+   * ⭐ 进程环境变量也认（2026-10-28）
+   *
+   *   CI 的 secret、`docker -e`、终端里 `export DEEPSEEK_API_KEY=...`，
+   *   走的都是环境变量。之前这里【只】读 .env 文件，于是：
+   *     · CI 里 secret 明明注进去了，评测却报"找不到 API Key"
+   *     · 在终端里 export 过的用户，打开插件照样被提示没配 key
+   *       （.env 是按 extensionPath 找的，而扩展可能装在别处）
+   *
+   *   .env 排在前面：它是开发者本地显式写的，应该赢过环境变量。
    */
   private loadFromEnv(): EnvConfig {
+    const result: EnvConfig = {};
+
+    // ── 第 1 优先：进程环境变量 ──
+    const envKeyName = API_KEY_NAMES.find((n) => process.env[n]);
+    if (envKeyName) result.key = process.env[envKeyName];
+    const envProvider = process.env.MINI_CODER_PROVIDER;
+    if (envProvider && VALID_PROVIDERS.includes(envProvider as ProviderName)) {
+      result.provider = envProvider as ProviderName;
+    }
+    if (process.env.MINI_CODER_MODEL) result.model = process.env.MINI_CODER_MODEL;
+    if (process.env.MINI_CODER_BASE_URL) result.baseUrl = process.env.MINI_CODER_BASE_URL;
+
+    // ── 第 2 优先：项目根 .env 文件 ──
     const envPath = path.join(this.context.extensionPath, '.env');
-    if (!fs.existsSync(envPath)) return {};
+    if (!fs.existsSync(envPath)) return result;
 
     try {
       const content = fs.readFileSync(envPath, 'utf-8');
-      const result: EnvConfig = {};
 
       for (const rawLine of content.split('\n')) {
         const trimmed = rawLine.trim();
@@ -155,7 +177,7 @@ export class ConfigManager {
 
       return result;
     } catch {
-      return {};
+      return result;
     }
   }
 

@@ -94,10 +94,34 @@ function parseAblate(argv: string[]): string[] {
   return [...new Set(out)];
 }
 
-/** 读 .env（跟 ConfigManager 同样的键名，优先用它，方便开发时免填key） */
+/** .env / 环境变量里可能出现的 key 名（跟 ConfigManager 保持一致） */
+const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY'];
+
+/**
+ * 读 API Key / Provider 配置
+ *
+ * ⭐ 优先级：进程环境变量 < 项目根 .env
+ *
+ *   为什么必须支持进程环境变量（2026-10-28 修 CI 红）：
+ *     GitHub Actions 的 secret、`docker -e`、`export KEY=...` 全是走环境变量的。
+ *     之前这里【只】读 .env 文件 —— 于是 CI 里 secret 明明注进去了
+ *     （日志里 env 一栏清清楚楚写着 DEEPSEEK_API_KEY: ***），
+ *     评测却报"❌ 找不到 API Key"，白烧一次 CI。
+ *
+ *   .env 排在前面：它是开发者本地显式写的，应该赢过环境变量。
+ */
 function loadEnvKey(): { key?: string; provider?: string; model?: string; baseUrl?: string } {
-  const envPath = path.join(path.resolve(evalRoot(), '..'), '.env');
   const out: any = {};
+
+  // ── 第 1 优先：进程环境变量 ──
+  const envKeyName = API_KEY_NAMES.find((n) => process.env[n]);
+  if (envKeyName) out.key = process.env[envKeyName];
+  if (process.env.MINI_CODER_PROVIDER) out.provider = process.env.MINI_CODER_PROVIDER;
+  if (process.env.MINI_CODER_MODEL) out.model = process.env.MINI_CODER_MODEL;
+  if (process.env.MINI_CODER_BASE_URL) out.baseUrl = process.env.MINI_CODER_BASE_URL;
+
+  // ── 第 2 优先：项目根 .env ──
+  const envPath = path.join(path.resolve(evalRoot(), '..'), '.env');
   if (!fs.existsSync(envPath)) return out;
   for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
     const t = line.trim();
@@ -106,7 +130,7 @@ function loadEnvKey(): { key?: string; provider?: string; model?: string; baseUr
     if (i < 0) continue;
     const k = t.slice(0, i).trim();
     const v = t.slice(i + 1).trim();
-    if (k === 'MINIMAX_API_KEY' || k === 'DEEPSEEK_API_KEY' || k === 'OPENAI_API_KEY' || k === 'LLM_API_KEY') {
+    if (API_KEY_NAMES.includes(k)) {
       out.key = v;
     } else if (k === 'MINI_CODER_PROVIDER') out.provider = v;
     else if (k === 'MINI_CODER_MODEL') out.model = v;

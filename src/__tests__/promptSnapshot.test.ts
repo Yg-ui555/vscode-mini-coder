@@ -61,7 +61,17 @@ function normalize(prompt: string): string {
   return prompt
     .split(tmp)
     .join('<WORKSPACE>')
-    .replace(/[A-Za-z]:\\[^\s`"']+/g, '<PATH>');
+    // ⭐ 统一路径分隔符（2026-10-28 修 CI 红）
+    //
+    //   Windows 的分隔符是 `\`、Linux 是 `/`。
+    //   同一份 prompt 在两个平台会算出两个不同的快照 —— 于是
+    //   Windows 本地全绿、ubuntu-latest 的 CI 全红，而且红得莫名其妙
+    //   （diff 里就差一个反斜杠）。
+    //
+    //   快照要盯的是"prompt 的结构与文字"，路径分隔符属于平台噪音，不是特征。
+    //   类比：给照片打水印时遮掉拍摄时间，因为那是变量不是画面内容。
+    .replace(/\\/g, '/')
+    .replace(/[A-Za-z]:\/[^\s`"']+/g, '<PATH>');
 }
 
 beforeAll(() => {
@@ -105,6 +115,30 @@ describe('system prompt 快照', () => {
     );
     const prompt = new ContextBuilder(ws, null).buildSystemPrompt();
     expect(normalize(prompt)).toMatchSnapshot();
+  });
+});
+
+/**
+ * ⭐ 快照必须与操作系统无关（2026-10-28）
+ *
+ *   背景：Windows 的路径分隔符是 `\`、Linux 是 `/`。
+ *   之前 normalize() 没处理这一层，于是同一份 prompt 在两个平台
+ *   算出两个不同的快照 —— Windows 本地全绿，ubuntu CI 全红，
+ *   而 diff 里只差一个反斜杠，看着像玄学。
+ *
+ *   这条断言把"跨平台"变成一个【可判定】的性质：
+ *   不管斜杠往哪边倒，归一化之后必须一模一样。
+ */
+describe('⭐ 快照归一化必须与平台无关', () => {
+  it('Windows 的 \\ 与 Linux 的 / 归一化后必须相同', () => {
+    const winStyle = '工作目录：`<WORKSPACE>\\with-skills`';
+    const posixStyle = '工作目录：`<WORKSPACE>/with-skills`';
+    expect(normalize(winStyle)).toBe(normalize(posixStyle));
+  });
+
+  it('盘符路径在两个平台上都要被抹成 <PATH>', () => {
+    expect(normalize('根目录 `D:\\projects\\demo`')).toContain('<PATH>');
+    expect(normalize('根目录 `D:/projects/demo`')).toContain('<PATH>');
   });
 });
 

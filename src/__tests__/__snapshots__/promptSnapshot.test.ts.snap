@@ -213,7 +213,7 @@ pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志
 
 # 当前项目
 
-工作目录：\`<WORKSPACE>\\with-skills\`
+工作目录：\`<WORKSPACE>/with-skills\`
 
 相对路径以此为根。修改文件用相对路径或绝对路径均可。"
 `;
@@ -336,7 +336,7 @@ pitfalls 那一栏最重要 —— 它是"错题本"区别于"文件修改日志
 
 # 当前项目
 
-工作目录：\`<WORKSPACE>\\with-bootstrap\`
+工作目录：\`<WORKSPACE>/with-bootstrap\`
 
 相对路径以此为根。修改文件用相对路径或绝对路径均可。"
 `;

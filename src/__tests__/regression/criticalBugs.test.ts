@@ -164,8 +164,20 @@ describe('P1-6: 路径白名单', () => {
 
   it('工作区外的绝对路径被拒绝', async () => {
     const tool = new WriteFileTool();
+    // ⚠️ 必须用【当前平台上真实存在的】越界绝对路径（2026-10-28 修 CI 红）：
+    //   原来写死 'C:/Windows/System32/evil.dll'。在 Linux 上
+    //   path.isAbsolute('C:/Windows/...') 是 false —— 它被当成相对路径
+    //   解析进了工作区，白名单【放行】，文件居然真的被写进去了。
+    //   也就是说：这条断言在 Linux 上测的根本不是"越界被拦住"，
+    //   而是"Windows 盘符路径在 POSIX 上不是绝对路径"这个冷知识。
+    //
+    //   现在按平台挑一个【确实存在】的系统目录，两个平台上都是
+    //   "绝对 + 越界"，测的才是路径白名单本身。
+    const systemDir = process.platform === 'win32' ? 'C:\\Windows' : '/etc';
+    const outsidePath = path.join(systemDir, 'evil.dll');
+
     const result = await tool.execute({
-      path: 'C:/Windows/System32/evil.dll',
+      path: outsidePath,
       content: 'malicious',
     });
 

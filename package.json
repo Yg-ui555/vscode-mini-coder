@@ -92,6 +92,12 @@
         "title": "Mini-Coder: 查看调用链追踪（/traces）"
       }
     ],
+    "keybindings": [
+      {
+        "command": "mini-coder.openChat",
+        "key": "ctrl+alt+shift+m"
+      }
+    ],
     "configuration": {
       "title": "Mini-Coder",
       "properties": {
@@ -150,6 +156,11 @@
           ],
           "default": "askWrites",
           "markdownDescription": "**权限档位**。控制 agent 能在多大范围内动你的代码。\n\n三档共同的规则：**只读操作（读文件 / 搜索 / 列目录）在任何档位都不弹窗** —— 每读一个文件弹一次窗，这个工具会立刻变得没法用。\n\n也可以点状态栏上的权限项快速切换。"
+        },
+        "mini-coder.openOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**启动后自动打开聊天面板**。\n\n默认关闭。开启后，VS Code 窗口起来约 4 秒会自动弹出 Mini-Coder Chat 面板。\n\n用途：① 冒烟测试 / CI 里验证 webview 能不能正常渲染（面板白屏是最难查的故障，没有报错只有空白）；② 日常就想要面板常驻在右侧。\n\n> 也可以用环境变量 `MINI_CODER_AUTOPEN=1` 临时打开（不依赖设置，CI 与排障更方便）。两者都关时，行为与本扩展未装时完全一致。"
         }
       }
     }
