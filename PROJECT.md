@@ -219,6 +219,15 @@ npm run eval         # 真跑（需 .env 配 API Key，约 ¥1~3）
 | 工具数量 | **9 个**：read_file / grep / glob / list_dir / record_note / apply_patch / write_file / restore_file / run_shell |
 | 测试 | **474 个用例 / 30 个文件全绿**（2026-10-25，真实项目验证 + 4 个修复后） |
 | pass rate | **100%（23/23，DeepSeek-chat，2026-10-24，Phase 2 改造后）** |
+
+> ⚠️ **上表是 2026-10-25 的历史快照**（Phase 2 改造刚收尾时的状态）。
+> 它记录的是"当时做到了什么"，**不要直接抄进简历** ——
+> 当前权威数字见 `README.md` 顶部徽章 + `eval/RESULTS.md`，
+> 一键复核：`node scripts/stats.js`。
+>
+> **最新（2026-10-28）**：工具 **11 个** · 测试 **579 个用例 / 38 个文件** ·
+> 30 题全量评测 pass rate **93%（28/30）**、case 修好率 98%（119/122）·
+> 已接入 **MCP stdio**（7 文件 / 1,363 行）· 架构守卫 **11 项**。
 | 工具注册 | 单一工厂 `agent/tools/factory.ts`，面板 / 评测 / 自检 / 自动修 四处共用一份定义 |
 | 文件回滚 | ✅ checkpoint + `/undo` + `restore_file`（goose / nanobot 都没有这个能力） |
 | 会话持久化 | ✅ JSONL 落盘，关掉 VS Code 再打开对话还在 |

@@ -389,12 +389,86 @@ export function toMarkdown(s: EvalSummary): string {
   return lines.join('\n');
 }
 
-export function writeReports(s: EvalSummary): { md: string; json: string } {
-  const root = evalRoot();
-  const md = path.join(root, 'RESULTS.md');
-  const json = path.join(root, 'results.json');
+/**
+ * ⭐ 报告分流（2026-10-28 新增）
+ *
+ * 为什么需要这一层：
+ *   2026-10-28 有人（其实是我自己）跑了一次 `npm run eval:dry`，
+ *   结果正式报告 `eval/RESULTS.md` 被 dry 模式的数据整个覆盖了 ——
+ *   pass rate 从 93% 掉到 3%。
+ *
+ *   而 dry 模式【根本没有调用 LLM】，那 29 个 fail 全是 mock provider 造出来的假象。
+ *
+ *   这比"数字算错了"严重得多，原因是：
+ *     eval/RESULTS.md 是这个项目【对外展示能力基线】的唯一出处。
+ *     README 的徽章、docs/RESUME.md 里的数字、面试时递出去的那份报告，
+ *     全部引用它。而一条 `npm run eval:dry` 就能把它冲掉 ——
+ *     这说明这条链路【没有任何护栏】。
+ *
+ *   比喻：这就像实验室里贴着"合格样本"标签的展柜，
+ *   任何人拿一个空烧杯往里一放，展品就换成空杯子了，而且没人会发现。
+ *
+ *   修法：报告按"这次跑的到底是什么"分流，各写各的文件。
+ *     full     → RESULTS.md / results.json        只有【全量 + 真实 LLM】能写
+ *     partial  → RESULTS.partial.md / ...         跑了子集（CI 的 2 题冒烟就是这种）
+ *     dry      → RESULTS.dry.md / ...             没调 LLM 的框架自检
+ *     ablation → RESULTS.ablation.md / ...        消融实验（故意阉割工具，pass rate 必然更低）
+ *
+ *   而且 partial / dry / ablation 三种文件的头部都会写清楚
+ *   "这份不是正式基线"—— 防止有人截图时忘了看文件名。
+ */
+export type ReportVariant = 'full' | 'partial' | 'dry' | 'ablation';
 
-  fs.writeFileSync(md, toMarkdown(s), 'utf-8');
+interface VariantSpec {
+  md: string;
+  json: string;
+  /** 写在文件顶部的警示横幅（正式基线不需要） */
+  banner?: string;
+}
+
+const VARIANT_FILES: Record<ReportVariant, VariantSpec> = {
+  full: { md: 'RESULTS.md', json: 'results.json' },
+  partial: {
+    md: 'RESULTS.partial.md',
+    json: 'results.partial.json',
+    banner:
+      '> ⚠️ **这是一次子集评测（partial），不是正式基线。**\n' +
+      '>\n' +
+      '> 正式基线在 [`eval/RESULTS.md`](./RESULTS.md)，由全量 30 题真实评测生成。\n' +
+      '> 这份文件只反映本次跑的那几道题，**不能用来对外展示能力**。\n',
+  },
+  dry: {
+    md: 'RESULTS.dry.md',
+    json: 'results.dry.json',
+    banner:
+      '> ⚠️ **这是 dry run —— 没有调用任何 LLM。**\n' +
+      '>\n' +
+      '> 这里的 pass / fail 全部来自 mock provider，**不代表真实能力**。\n' +
+      '> （dry 模式下 pass rate 通常极低，那是正常的 —— 它只在验证"框架跑不跑得起来"。）\n' +
+      '>\n' +
+      '> 正式基线在 [`eval/RESULTS.md`](./RESULTS.md)，由全量 30 题真实评测生成。\n',
+  },
+  ablation: {
+    md: 'RESULTS.ablation.md',
+    json: 'results.ablation.json',
+    banner:
+      '> ⚠️ **这是一次消融实验（ablation），不是正式基线。**\n' +
+      '>\n' +
+      '> 消融 = 故意拿掉某些工具/能力，再跑一遍，测"少一块会掉多少分"。\n' +
+      '> 所以它的 pass rate **必然低于**正式基线，这是设计如此，不是回归。\n' +
+      '>\n' +
+      '> 正式基线在 [`eval/RESULTS.md`](./RESULTS.md)，由全量 30 题真实评测生成。\n',
+  },
+};
+
+export function writeReports(s: EvalSummary, variant: ReportVariant = 'full'): { md: string; json: string } {
+  const root = evalRoot();
+  const spec = VARIANT_FILES[variant] ?? VARIANT_FILES.full;
+  const md = path.join(root, spec.md);
+  const json = path.join(root, spec.json);
+
+  const body = toMarkdown(s);
+  fs.writeFileSync(md, spec.banner ? `${spec.banner}\n${body}` : body, 'utf-8');
   fs.writeFileSync(json, JSON.stringify(s, null, 2), 'utf-8');
 
   return { md, json };

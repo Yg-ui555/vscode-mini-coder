@@ -1094,7 +1094,7 @@ baseline（改前）  ×  after（改后）  ×  oracle（标准答案）
 pass rate 只说"整张卷子及格了"，
 case 级修好率说"**5 个小问对了 4.2 个**"——**粒度更细，更能看出进步**。
 
-**你项目里**：`eval/RESULTS.md` 的"目标 case 修好率 100%（93/93）"。
+**你项目里**：`eval/RESULTS.md` 的"目标 case 修好率 98%（119/122）"。
 
 ---
 
@@ -1248,7 +1248,7 @@ npm run eval:repeat 3
 ```
 ✓ [provider-enum] provider 名单一致（4 个）
 ✓ [tool-registry] 工具名单一致（注册 16 个，只读 4 个）
-✓ [file-size] 所有源文件都在 800 行以内（最大：src/webview/panel.ts 637 行）
+✓ [file-size] 所有源文件都在 800 行以内（最大：src/webview/panel.ts 640 行）
 ✓ [vscodeignore] .vscodeignore 排除项与保留项都齐全
 ✓ [eval-oracle] 30 道题全部有标准答案
 ✓ [no-secret] 源码里没有疑似真实密钥

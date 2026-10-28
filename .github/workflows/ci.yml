@@ -146,7 +146,26 @@ jobs:
     name: eval smoke
     runs-on: ubuntu-latest
     needs: [guard]
-    if: ${{ github.event_name != 'pull_request' || secrets.DEEPSEEK_API_KEY != '' }}
+    # ⚠️ 2026-10-28 修正（CI 一直是红的根因）：
+    #   原来这里写的是
+    #     if: ${{ github.event_name != 'pull_request' || secrets.DEEPSEEK_API_KEY != '' }}
+    #   GitHub 直接拒绝加载整个 workflow 文件：
+    #     Invalid workflow file: .github/workflows/ci.yml
+    #     Unrecognized named-value: 'secrets'.
+    #     Located at position 40 within expression: github.event_name != 'pull_request' || secrets.DEEPSEEK_API_KEY != ''
+    #
+    #   原因（官方 contexts availability）：
+    #     job 级 if 的可用上下文只有 github / needs / vars / inputs，
+    #     【secrets 不在其中】。这不是"表达式写错了"，是"这个位置根本拿不到 secret"。
+    #
+    #   后果有多严重：workflow 文件解析阶段就失败 → 一个 job 都不会被创建
+    #   → Actions 页面显示红色，但点进去 "0 jobs" → 徽章永远红。
+    #   这就是"配了 CI 但从来没绿过"的真正机制。
+    #
+    #   正确做法：job 级 if 只用 github 上下文；
+    #   「到底有没有 key」的判断挪到 step 内部用 shell 做
+    #   （step 的 env 里是可以引用 secrets 的 —— env 可以，if 不可以）。
+    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -166,7 +185,15 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           MINI_CODER_PROVIDER: deepseek
           MINI_CODER_MODEL: deepseek-chat
-        run: node out/eval/cli.js 01 23
+        run: |
+          # 没配 key 就跳过，而不是把 CI 变红 ——「红了的 CI 等于没有 CI」。
+          # 这里用 shell 判断而不是在 if 里判断：
+          # 因为 secrets 上下文只能进 env，进不了 if 表达式。
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "::notice::仓库未配置 DEEPSEEK_API_KEY secret，跳过 2 题冒烟评测（其余 job 照常验证）。"
+            exit 0
+          fi
+          node out/eval/cli.js 01 23
 
       - name: Upload report
         if: always()

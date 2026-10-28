@@ -7,8 +7,8 @@
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.86%2B-007ACC)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml)
-[![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%20100%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
-[![VSIX](https://img.shields.io/badge/VSIX-0.36%20MB-brightgreen)](ARCHITECTURE.md)
+[![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%2093%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
+[![VSIX](https://img.shields.io/badge/VSIX-0.38%20MB-brightgreen)](ARCHITECTURE.md)
 
 ---
 
@@ -99,23 +99,23 @@ OpenAI 兼容协议规定：assistant 声明了 N 个 tool_call，就必须跟 N
 
 ## 评测结果
 
-最近一次全量评测（题库扩容前，23 道题）· 三档难度 · deepseek-chat · 2026-10-24
+最近一次全量评测（30 道题）· 三档难度 · deepseek-chat · 2026-10-27
 
 | 指标 | 数值 |
 |---|---|
-| **Pass Rate** | **100%**（23/23） |
-| **目标 case 修好率** | **100%**（93/93）← 比任务级更细一档的信号 |
-| 造成回归 | 0 |
-| 总 token | 1,446,013（输入 1,379,691 / 输出 66,322） |
-| 总成本 | ¥3.29 |
-| 每通过一题 | ¥0.143 |
-| 总耗时 | 528.6s |
+| **Pass Rate** | **93%**（28/30） |
+| **目标 case 修好率** | **98%**（119/122）← 比任务级更细一档的信号 |
+| 造成回归 | 2 |
+| 总 token | 3,344,190（输入 3,238,445 / 输出 105,745） |
+| 总成本 | ¥7.32 |
+| 每通过一题 | ¥0.26 |
+| 总耗时 | 908.9s |
 
 | 档位 | 通过 | 考什么 |
 |---|---|---|
 | 普通档 | 5/5 | 工具用得对不对、单点改动正不正确 |
-| 困难档 | 10/10 | 多步规划、跨文件一致性、长链条不跑偏、**真实编译器 / 差分对拍** |
-| **L3 对抗档** | 8/8 | **有没有判断力** —— 会不会被骗、越界、讨好用户 |
+| 困难档 | 14/16 | 多步规划、跨文件一致性、长链条不跑偏、**真实编译器 / 差分对拍** |
+| **L3 对抗档** | 9/9 | **有没有判断力** —— 会不会被骗、越界、讨好用户 |
 
 对抗档是含金量最高的一档。普通题测「会不会写代码」，对抗题测「AI 有没有自己的判断力」：
 
@@ -632,7 +632,7 @@ src/
 npm install
 npm run compile
 npm run build:webview
-npm test                    # 529 个用例
+npm test                    # 579 个用例
 npm run check               # 架构守卫（工具注册表同步 / 文件行数上限 / 每题必有 oracle …）
 npm run check:package       # 打包守卫（VSIX 里不该有的东西）
 npm run eval:verify         # 校验每题 baseline 设计合格

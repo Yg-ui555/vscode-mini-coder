@@ -5,13 +5,13 @@
 > 2. **下一个接手的人** —— 你要加一个新工具 / 一个新 Operation / 一个新 provider，照着第 6 节做就行。
 >
 > **数据都是实测的**，不是估计值。统计口径：
-> `src/` 下非测试 `.ts` 文件 **84 个 / 17,548 行**；
-> `src/__tests__/` 下测试 **37 个文件 / 7,574 行**；
-> `webview-ui/src/` **995 行**（6 个文件，含 styles.css 479 行）。
+> `src/` 下非测试 `.ts` 文件 **91 个 / 19,091 行**；
+> `src/__tests__/` 下测试 **38 个文件 / 8,541 行**；
+> `webview-ui/src/` **1,002 行**（6 个文件，含 styles.css 480 行）。
 >
 > 口径说明：行数按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
-> 用 `Measure-Object -Line` 会得到 14,492 行——它不计空行，低估 17%。
-> 复现命令见 `docs/RESUME.md`。
+> 用 `Measure-Object -Line` 会得到 15,683 行——它不计空行，低估 17.9%。
+> 复现命令见 `docs/RESUME.md`；一键出全部权威数字：`node scripts/stats.js`。
 
 ---
 
@@ -189,15 +189,16 @@ messages 里有一大坨历史
 |---|---|---|---|
 | **agent/** | Agent 运行时（纯逻辑） | `loop.ts` | 211 行 |
 | ├ operations/ | 主循环拆成的 **9 个 Operation**（+ types.ts / index.ts 共 11 个文件） | `types.ts` `index.ts` | 1,505 行 |
-| ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | — |
+| ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | 4,009 行 |
+| ├ mcp/ | MCP stdio 客户端（JSON-RPC 协议 / 子进程 / 管理器 / schema 归一化） | `stdioClient.ts` `protocol.ts` | 1,363 行 |
 | ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` | — |
 | ├ todo/ | 待办清单状态（内存 + session 持久化） | `store.ts` | — |
 | ├ provider.ts | OpenAI 兼容协议客户端 + fallback | `provider.ts` | — |
 | ├ context.ts | system prompt 拼装（按工具可用性裁剪） | `context.ts` | — |
 | ├ visibility.ts | 双可见性（模型视图 / 用户视图） | `visibility.ts` | — |
 | ├ trust.ts | 不可信数据边界（提示注入防护） | `trust.ts` | 155 行 |
-| **webview/** | 扩展 ↔ Webview 的消息编解码 | `panel.ts` | 637 行 |
-| **webview-ui/** | React 前端（聊天、待办、插话） | `components/` | 995 行 |
+| **webview/** | 扩展 ↔ Webview 的消息编解码 | `panel.ts` | 640 行 |
+| **webview-ui/** | React 前端（聊天、待办、插话） | `components/` | 1,002 行 |
 | **session/** | 会话持久化 + 中断续跑 | `store.ts` `resume.ts` | 687 行 |
 | **observability/** | OTel 风格 span 记录器 | `spans.ts` | 183 行 |
 | **commands/** | 命令面板命令 | `doctor.ts` `traces.ts` `sessions.ts` `permissions.ts` | 731 行 |
@@ -205,7 +206,7 @@ messages 里有一大坨历史
 | **features/** | 特色功能（自动测 / 中文 commit / 错题本） | `autoTest.ts` `zhCommit.ts` `notes.ts` | 947 行 |
 | **skills/** | 技能包加载（渐进式：索引 / 正文两档） | `loader.ts` `index.ts` `types.ts` | 772 行 |
 | **util/** | token 估算 / diff / 协议修复 / 大输出外置 | `historyRepair.ts` `tokens.ts` | 1,333 行 |
-| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,203 行 |
+| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,292 行 |
 
 ### 工具清单（11 个）
 
@@ -491,7 +492,7 @@ expect(r.status).toBe('applied');
 
 | 手段 | 位置 | 作用 |
 |---|---|---|
-| 单元测试 | `src/__tests__/`（37 文件 / 7,574 行） | 行为回归 |
+| 单元测试 | `src/__tests__/`（38 文件 / 8,541 行） | 行为回归 |
 | 架构守卫 | `scripts/checkProject.js` | provider 枚举同步、工具名同步、单文件行数上限（800）、每题必须有 oracle、源码无疑似密钥、迭代上限单一真相源 |
 | 打包守卫 | `scripts/checkPackage.js` | VSIX 里不许出现 `eval/` `src/` `webview-ui/` 等 |
 | CI | `.github/workflows/ci.yml` | Linux + Windows 矩阵跑测试；评测冒烟（2 题，约 ¥0.11）；打包产物校验；每天凌晨全量评测 |

@@ -173,6 +173,8 @@
     "eval:compare": "node scripts/compareEval.js",
     "audit": "tsc && node scripts/auditProject.js",
     "check": "node scripts/checkProject.js",
+    "stats": "node scripts/stats.js",
+    "stats:test": "node scripts/stats.js --test",
     "check:package": "node scripts/checkPackage.js",
     "vscode:ls": "npx --yes @vscode/vsce@3 ls",
     "vscode:package": "npm run build:all && npx --yes @vscode/vsce@3 package",

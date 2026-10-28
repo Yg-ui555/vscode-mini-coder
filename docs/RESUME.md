@@ -57,30 +57,45 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 
 | 数字 | 值 | 出处 | 怎么验 |
 |---|---|---|---|
-| 源码规模 | `src/` 非测试 **84 文件 / 17,548 行** | 实测 | `Get-ChildItem src -Recurse -Filter *.ts \| Where-Object { $_.FullName -notlike '*\src\__tests__\*' }` |
-| 测试规模 | **38 文件 / 7,917 行** | 实测 | `src/__tests__/` |
+| 源码规模 | `src/` 非测试 **91 文件 / 19,091 行** | 实测 | `node scripts/stats.js` |
+| 测试规模 | **38 文件 / 8,541 行** | 实测 | `node scripts/stats.js` |
 | 前端规模 | `webview-ui/src/` **1,002 行** | 实测 | — |
-| 测试用例数 | **529**（改造前 474） | `npx vitest run` | 实测 |
+| 测试用例数 | **579**（改造前 474） | `npx vitest run` | 实测 |
 | 主循环行数 | **1075 → 211 行** | `git show HEAD:src/agent/loop.ts` 对比 | — |
 | Operation 数 | **11 个** | `src/agent/operations/` | — |
 | 工具数 | **11 个** | `src/agent/tools/factory.ts` | `/doctor` 命令自检 |
 | 评测题数 | **30 道**（普通 5 / 困难 16 / 对抗 9） | `eval/tasks/` | `npm run eval:list` |
 | 标准答案 | **30 份 oracle（100% 覆盖）** | `eval/oracles/` | `npm run eval:solvable` → 30/30 全绿 |
-| 最近全量评测 pass rate | **100%（23/23）**，case 修好率 **100%（93/93）**，回归 0 | `eval/RESULTS.md`（2026-10-24，23 题时点） | `npm run eval` |
-| 单题平均成本 | **¥0.143**（总 ¥3.29 / 23 题） | `eval/RESULTS.md` | — |
-| 输入/输出 token 比 | **95.4% / 4.6%**（输入 1,379,691 / 输出 66,322） | `eval/RESULTS.md` | — |
+| 最近全量评测 pass rate | **93%（28/30）**，case 修好率 **98%（119/122）**，回归 2 | `eval/RESULTS.md`（2026-10-27，30 题时点） | `npm run eval` |
+| 单题平均成本 | **¥0.244**（总 ¥7.32 / 30 题） | `eval/RESULTS.md` | — |
+| 输入/输出 token 比 | **96.8% / 3.2%**（输入 3,238,445 / 输出 105,745） | `eval/RESULTS.md` | — |
 | 消融实验 | 摘 grep：pass rate 不变，成本 **-25%**（¥1.57→¥1.18）；摘 grep+run_shell：仍 100% | `eval/ABLATION.md` | `npm run eval -- --ablate grep` |
 | CI 矩阵 | Linux + Windows 双平台 + 评测冒烟 + 打包守卫 | `.github/workflows/ci.yml` | — |
-| **VSIX 体积** | **0.36 MB / 88 个文件**（打包守卫阈值 2 MB）<br>（`vsce package` 自报 90，那是把 2 个打包元数据文件也算进去了） | `npm run vscode:package` | `vscode-mini-coder-0.4.0.vsix` |
+| **VSIX 体积** | **0.38 MB / 97 个文件**（打包守卫阈值 2 MB） | `npm run vscode:package` | `vscode-mini-coder-0.4.0.vsix` |
 
-### ⚠️ 待刷新的数字（**写进简历前必须更新**）
+### ✅ 这张表已刷新到最新（2026-10-28）
 
-评测相关的数字是 **2026-10-24、23 题时点**的。题库已经扩到 **30 道**
-（41-44 规模型 + 45-47 新功能型），**必须重跑一次全量评测**再更新这张表：
+上一版的这张表还停在 **2026-10-24、23 题时点**，
+而题库早已扩到 **30 道**（41-44 规模型 + 45-47 新功能型）——
+"简历写 30 题、报告证明 23 题"属于**数据不实**，面试官一对照就露。
+
+现在跑完 30 道全量评测，并把报告一起提交：
 
 ```powershell
-npm run eval          # ≈ 10 分钟 / ≈ ¥3.9
+npm run eval          # ≈ 15 分钟 / ≈ ¥7.3
 ```
+
+> 结果：**pass rate 93%（28/30）**，case 修好率 **98%（119/122）**，造成回归 2。
+> 从 100%（23 题）掉到 93%（30 题）—— 说明新增的规模型题目确实拉开了差距，
+> 尺子终于有了刻度。
+>
+> 但要诚实地说：**93% 仍然偏高**，说明题库还能更难一档 ——
+> 这正是下一步该做的方向（见 `ROADMAP_V3.md` 的 Phase 11）。
+>
+> ⚠️ **一个值得记住的教训**：就在这次刷新之前，
+> 一条 `npm run eval:dry`（不花钱的框架自检）曾把正式报告整个覆盖成 3%。
+> 现在 dry / 子集 / 消融三种跑批各写各的文件（`RESULTS.dry.md` 等），
+> 外加一条 CI 检查守着 —— **基线报告不会再被随手命令冲掉了**。
 
 > 顺带说个**重要判断**：这 7 道新题是专门为了**把 pass rate 从 100% 打下来**而设计的。
 > 目标区间是 **70-85%** —— 太高说明是送分卷（面试官一问就露馅），
@@ -195,7 +210,7 @@ grep -rn "readConfig\|loadConfig\|printConfig\|bootstrap\|processTask" src/ test
 
 | 问法 | 你要能立刻说出的出处 |
 |---|---|
-| "17,548 行是怎么数的？" | `src/` 下非测试 `.ts`，按 `ReadAllText -split "\n"` 的行数（注意 `Measure-Object -Line` 不计空行，不准） |
+| "19,091 行是怎么数的？" | `src/` 下非测试 `.ts`，按 `ReadAllText -split "\n"` 的行数（注意 `Measure-Object -Line` 不计空行，不准） |
 | "490 个测试都是有效的吗？" | `npx vitest run` 跑出来的**用例数**，不是文件数。文件数是 36 |
 | "pass rate 100% 是不是题太简单？" | 是。这正是我加规模型题和做消融的原因。（主动承认，别辩解） |
 | "30 题跑一次多少钱？" | ¥3.29（23 题时点）/ 约 ¥3.9（30 题估算）。CI 冒烟只跑 2 题，约 ¥0.11 |

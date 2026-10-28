@@ -29,3 +29,14 @@
 # ⚠️ 只钉 eval/，不动 src/ —— src/ 的换行不影响任何断言，
 #   没必要为了这一个目录去触发全仓库重新归一化。
 eval/** text eol=lf
+
+# ⭐ 2026-10-28 新增：vitest 快照必须跨平台完全一致
+#
+#   坑：Windows 上 core.autocrlf=true，工作区文件是 CRLF；
+#   vitest 跑完会把 .snap 重写一遍，mtime 变了 → git status 标记 "M"，
+#   但 git diff --numstat 是空的（内容其实等价）。
+#   → 每次跑完测试都看到一堆"假修改"，commit 前还得挨个 add 才能消掉。
+#
+#   快照文件是【跨平台必须逐字节一致】的东西（Windows 写 CRLF、Linux 写 LF，
+#   差一个换行符，diff 就脏了），所以显式钉死 LF，不交给 autocrlf 猜。
+*.snap text eol=lf

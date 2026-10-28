@@ -16,7 +16,7 @@ import * as path from 'path';
 
 import { loadAllTasks, TaskMeta, evalRoot } from './types';
 import { runTask, EvalConfig, TaskResult } from './runner';
-import { summarize, writeReports } from './report';
+import { summarize, writeReports, ReportVariant } from './report';
 import {
   summarizeRuns,
   summarizeSuite,
@@ -265,7 +265,22 @@ async function main() {
     durationMs: Date.now() - startedAt,
     ablatedTools: args.ablateTools,
   });
-  const { md, json } = writeReports(summary);
+  // ⭐ 报告分流：只有「全量 + 真实 LLM」的跑批才允许覆盖正式基线报告。
+  //
+  //   理由见 src/eval/report.ts 里 ReportVariant 的注释：
+  //   一条 `npm run eval:dry` 或 `node out/eval/cli.js 01 23`（2 题冒烟）
+  //   就能把对外展示的 93% 基线冲成 3%，而 dry 模式压根没调 LLM。
+  //
+  //   消融实验同理：它【故意】阉掉工具，pass rate 必然更低，
+  //   让它覆盖基线就是在制造"能力退化"的假象。
+  const variant: ReportVariant = args.dry
+    ? 'dry'
+    : args.ablateTools.length > 0
+      ? 'ablation'
+      : args.filters.length > 0
+        ? 'partial'
+        : 'full';
+  const { md, json } = writeReports(summary, variant);
 
   console.log('\n' + '─'.repeat(58));
   console.log(`Pass Rate: ${summary.passRate}%  (${summary.pass}/${summary.total})`);

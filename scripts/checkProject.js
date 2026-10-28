@@ -481,6 +481,266 @@ function checkNoDrift() {
   note(CHECK, `迭代上限单一真相源 = ${maxIterations}`);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+ * 9. GitHub Actions workflow 文件的上下文合法性
+ *
+ * ⭐ 这一项是被 2026-10-28 的真实事故逼出来的。
+ *
+ *   事故经过：
+ *     · 仓库从建仓起 CI 徽章就是红的，但 Actions 页面点进去显示 "0 jobs"。
+ *     · GitHub 的原始报错（藏在 Annotations 里）：
+ *         Invalid workflow file: .github/workflows/ci.yml
+ *         (Line: 149, Col: 9): Unrecognized named-value: 'secrets'.
+ *         Located at position 40 within expression:
+ *           github.event_name != 'pull_request' || secrets.DEEPSEEK_API_KEY != ''
+ *
+ *   根因（官方 contexts availability 表）：
+ *     job 级 if 的可用上下文只有 github / needs / vars / inputs，
+ *     【secrets 不在其中】。
+ *     → 不是"表达式写错了"，是"这个位置根本拿不到 secret"。
+ *     → 后果不是某一个 job 挂掉，而是【整个 workflow 文件解析失败】，
+ *       一个 job 都不会被创建 → 徽章永远红，而且【日志里什么都没有】。
+ *
+ *   为什么"日志里什么都没有"最可怕：
+ *     Actions 页面显示 Failure，但点进去 0 个 job，看不到任何一行日志。
+ *     面试官点开你的仓库看到红叉，也不会给你时间解释。
+ *
+ *   这项检查防的就是这一类【静默失效】：
+ *     ① if 表达式里出现 secrets 上下文（job 级 / step 级都不允许）
+ *     ② 触发分支名和远端实际分支对不上
+ *        —— 这个坑也踩过一次（写 main，远端其实是 master），
+ *           后果同样是"CI 永远不触发"，但没有任何报错。
+ * ═══════════════════════════════════════════════════════════════ */
+function checkWorkflowContexts() {
+  const CHECK = 'workflow-context';
+  const wfDir = path.join(ROOT, '.github', 'workflows');
+  const files = listFiles(wfDir).filter((f) => /\.ya?ml$/.test(f));
+
+  if (files.length === 0) {
+    warn(CHECK, '没找到 .github/workflows/ 下的任何 yml —— CI 可能被删了');
+    return;
+  }
+
+  /* ── ① if 表达式不得使用 secrets 上下文 ────────────────────── */
+  for (const f of files) {
+    const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    const lines = fs.readFileSync(f, 'utf-8').split('\n');
+    lines.forEach((line, i) => {
+      // 只看真正的 if: 键 —— 注释行以 # 开头，不会匹配
+      if (!/^\s*if:/.test(line)) return;
+      if (!/\bsecrets\./.test(line)) return;
+      err(
+        CHECK,
+        `${rel}:${i + 1} 的 if 表达式里用了 secrets 上下文。` +
+          `→ GitHub 会拒绝加载【整个 workflow 文件】（Unrecognized named-value: 'secrets'），` +
+          `一个 job 都不会创建，徽章永远红且没有任何日志。\n` +
+          `        修法：if 里只能用 github / needs / vars / inputs；` +
+          `需要 secret 就放进 step 的 env:，再在 run: 里用 shell 判断。`,
+      );
+    });
+  }
+
+  /* ── ② 触发分支必须和远端实际分支对得上 ─────────────────────── */
+  let remoteBranches = [];
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync('git branch -r --format="%(refname:short)"', {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    remoteBranches = out
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s && s !== 'origin' && !s.endsWith('/HEAD'))
+      .map((s) => s.replace(/^origin\//, ''));
+  } catch (e) {
+    // 没有 git 环境（比如从 tar 包解开）就跳过这一项，不误报
+    warn(CHECK, '拿不到远端分支列表（不在 git 仓库里？），跳过触发分支检查');
+    return;
+  }
+
+  if (remoteBranches.length === 0) return;
+
+  for (const f of files) {
+    const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+    const src = fs.readFileSync(f, 'utf-8');
+    for (const m of src.matchAll(/branches:\s*\[([^\]]*)\]/g)) {
+      const names = m[1]
+        .split(',')
+        .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+        .filter(Boolean);
+      for (const n of names) {
+        if (n === '**' || n.startsWith('!')) continue;
+        if (!remoteBranches.includes(n)) {
+          err(
+            CHECK,
+            `${rel} 的触发分支写了 "${n}"，但远端没有这个分支（现有：${remoteBranches.join(', ')}）。` +
+              `→ push 到这个分支【永远不会触发 CI】，而且【没有任何报错】。`,
+          );
+        }
+      }
+    }
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, `workflow 上下文合法（${files.length} 个文件，触发分支对齐 ${remoteBranches.join(', ')}）`);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * 10. 评测报告分流护栏
+ *
+ * ⭐ 2026-10-28 加的，因为踩过一次真事故。
+ *
+ *   跑 `npm run eval:dry`（不花钱的框架自检）把正式基线
+ *   eval/RESULTS.md 整个覆盖了 —— 93% 掉成 3%。
+ *   而 dry 模式根本没调 LLM，那 29 个 fail 全是 mock 造的假象。
+ *
+ *   后果的严重性在于：RESULTS.md 是这个项目【对外展示能力基线】的
+ *   唯一出处（README 徽章 / 简历数字 / 面试报告都引用它），
+ *   而一条随手命令就能冲掉它，且没有任何报错。
+ *
+ *   修法是"报告按跑批类型分流"，落在 src/eval/report.ts 的
+ *   ReportVariant 上，单元测试 src/__tests__/eval/reportIsolation.test.ts
+ *   是真正的护栏。
+ *
+ *   这里再查两件"容易漏"的事：
+ *   ① report.ts 里的分流常量还在不在（防止有人图省事把 variant 参数删了）
+ *   ② .gitignore 有没有把非正式报告排掉（漏了 = dry 报告会被提交上去，
+ *      面试官翻 git log 会看到一份 3% 的"评测报告"）
+ * ═══════════════════════════════════════════════════════════════ */
+function checkReportIsolation() {
+  const CHECK = 'report-isolation';
+  const reportSrc = readText('src/eval/report.ts');
+
+  if (!/export type ReportVariant/.test(reportSrc)) {
+    err(
+      CHECK,
+      'src/eval/report.ts 里找不到 ReportVariant 类型。' +
+        '→ 报告分流被删了：dry / partial / ablation 会重新覆盖正式基线 RESULTS.md。',
+    );
+  }
+
+  for (const v of ['dry', 'partial', 'ablation']) {
+    if (!new RegExp(`RESULTS\\.${v}\\.md`).test(reportSrc)) {
+      err(
+        CHECK,
+        `src/eval/report.ts 里没有 RESULTS.${v}.md 的分流文件名。` +
+          `→ ${v} 模式的报告会覆盖正式基线 RESULTS.md。`,
+      );
+    }
+  }
+
+  const ig = readText('.gitignore');
+  for (const f of [
+    'eval/RESULTS.dry.md',
+    'eval/RESULTS.partial.md',
+    'eval/RESULTS.ablation.md',
+    'eval/results.dry.json',
+    'eval/results.partial.json',
+    'eval/results.ablation.json',
+  ]) {
+    if (!ig.includes(f)) {
+      err(
+        CHECK,
+        `.gitignore 缺少 "${f}" → 非正式基线的评测报告会被提交进版本库，` +
+          `面试官翻 git log 会看到一份 dry 模式造出来的假报告。`,
+      );
+    }
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, '评测报告分流护栏齐全（dry / partial / ablation 各自独立文件）');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * 11. README 徽章的 pass rate 必须与实测报告一致
+ *
+ * ⭐ 这一条是 2026-10-28 加的，因为真的出过事故。
+ *
+ *   README 顶部徽章写「eval-30 题 · 100%」，
+ *   而 eval/RESULTS.md 里躺着的最新数据是「93%（28/30）」。
+ *   两句话在同一个仓库里互相矛盾 —— 面试官一对照就是「数据不实」。
+ *
+ *   为什么这类漂移特别危险：
+ *     它【不会让任何东西变红】。文档不是代码，测试不会失败，CI 不会拦你。
+ *     它只会安静地躺在那里，等到某天有人同时打开这两个页面。
+ *
+ *   比喻：这就像出厂合格证上印的重量，和实物对不上。
+ *     产品本身没问题，检测流程也没问题 —— 但这张证一旦被拿出去，就废了。
+ *
+ *   所以：徽章是「对外承诺」，报告是「实测证据」，
+ *   两者必须由机器核对，不能靠人记得同步。
+ * ═══════════════════════════════════════════════════════════════ */
+function checkEvalBadge() {
+  const CHECK = 'eval-badge';
+
+  const resultsPath = path.join(EVAL, 'RESULTS.md');
+  if (!fs.existsSync(resultsPath)) {
+    warn(CHECK, '找不到 eval/RESULTS.md —— 无法核对 README 徽章（先跑 npm run eval）');
+    return;
+  }
+
+  const readme = readText('README.md');
+
+  // 徽章 URL 是 URL 编码的：badge/eval-30%20%E9%A2%98%20%C2%B7%20100%25
+  const badgeRaw = readme.match(/badge\/eval-[^"'\s)]+/);
+  if (!badgeRaw) {
+    err(CHECK, 'README 里找不到 eval 徽章 —— 对外展示能力的入口没了');
+    return;
+  }
+  let decoded = badgeRaw[0];
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    /* 解不开就按原文匹配 */
+  }
+  const bm = decoded.match(/eval-(\d+)\s*题\s*·\s*(\d+)%/);
+  if (!bm) {
+    err(CHECK, `无法从 README 徽章解析出「题数 · pass rate」：${decoded}`);
+    return;
+  }
+  const badgeTasks = Number(bm[1]);
+  const badgeRate = Number(bm[2]);
+
+  // 从报告里取「实测」数字 —— 只看 Pass Rate 那一行，避免误抓别处的 x/y
+  const resultsSrc = fs.readFileSync(resultsPath, 'utf-8');
+  const prLine = resultsSrc.split('\n').find((l) => l.includes('**Pass Rate**'));
+  if (!prLine) {
+    err(CHECK, 'eval/RESULTS.md 里找不到 Pass Rate 行 —— 报告格式变了？');
+    return;
+  }
+  const rm = prLine.match(/\*\*(\d+)%\*\*/);
+  const tm = prLine.match(/(\d+)\/(\d+)/);
+  if (!rm || !tm) {
+    err(CHECK, `无法从 eval/RESULTS.md 的 Pass Rate 行解析数字：${prLine.trim()}`);
+    return;
+  }
+  const realRate = Number(rm[1]);
+  const realTotal = Number(tm[2]);
+
+  if (badgeRate !== realRate) {
+    err(
+      CHECK,
+      `README 徽章写 pass rate ${badgeRate}%，但 eval/RESULTS.md 实测是 ${realRate}%（${tm[1]}/${realTotal}）。` +
+        `→ 两句话在同一仓库里互相矛盾，面试官一对照就是「数据不实」。` +
+        `修法：跑 \`npm run eval\` 重新生成报告，然后把徽章改成实测值。`,
+    );
+  }
+  if (badgeTasks !== realTotal) {
+    err(
+      CHECK,
+      `README 徽章写 ${badgeTasks} 题，但 eval/RESULTS.md 的实际题量是 ${realTotal} 题。`,
+    );
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, `README 徽章与实测报告一致（${realRate}% · ${realTotal} 题）`);
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 function main() {
@@ -493,6 +753,9 @@ function main() {
     checkEvalOracles,
     checkNoSecrets,
     checkNoDrift,
+    checkWorkflowContexts,
+    checkReportIsolation,
+    checkEvalBadge,
   ];
 
   for (const c of checks) {

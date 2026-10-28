@@ -13,6 +13,15 @@ webview-ui/node_modules/
 eval/results.json
 eval/results-*.json
 
+# ⭐ 2026-10-28 新增：非正式基线的报告一律不进版本库
+#   （正式基线只有 eval/RESULTS.md 一个文件，见 src/eval/report.ts 的 ReportVariant）
+eval/RESULTS.partial.md
+eval/RESULTS.dry.md
+eval/RESULTS.ablation.md
+eval/results.partial.json
+eval/results.dry.json
+eval/results.ablation.json
+
 # Mini-Coder 运行时存档（checkpoint 快照）—— 不要进用户仓库
 .mini-coder/
 

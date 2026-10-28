@@ -24,16 +24,18 @@
 **VS Code AI 编程助手。** 一个自研的 ReAct Agent 运行时 + 一套能证明"改好了而且没弄坏别处"的回归检测评测体系。
 TypeScript，**零运行时依赖**（只用 Node 内置模块 + `fetch`）。
 
-| 规模 | 实测值（2026-10-27） |
+| 规模 | 实测值（2026-10-28） |
 |---|---|
-| 源码 | `src/` 非测试 **84 个文件 / 17,548 行** |
-| 测试 | **37 个文件 / 7,574 行 / 529 个用例** |
+| 源码 | `src/` 非测试 **91 个文件 / 19,091 行** |
+| 测试 | **38 个文件 / 8,541 行 / 579 个用例** |
 | 工具 | **11 个**（4 只读 + 3 状态 + 3 写 + 1 执行） |
 | Agent 管线 | **9 个 Operation**（`src/agent/operations/`） |
+| MCP | **stdio 客户端**（`src/agent/mcp/`，7 文件 / 1,363 行） |
 | 评测集 | **30 题**（5 简单 / 16 困难 / 9 对抗）+ 30 份标准答案 |
 
 > 行数口径：按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
-> 用 `Measure-Object -Line` 会低估 17%（它不计空行）。
+> 用 `Measure-Object -Line` 会低估 17.9%（它不计空行）。
+> 一键复核全部数字：`node scripts/stats.js`。
 
 ---
 
@@ -265,7 +267,7 @@ abort → max_iterations → user_prompt_submit → steer_inject → todo_inject
 ## 🛠 常用命令
 
 ```powershell
-npm test                 # 529 个用例（约 95s）
+npm test                 # 579 个用例（约 90s）
 npm run check            # 架构守卫（7 项）—— 提交前必跑
 npm run compile          # tsc
 npm run eval             # 全量 30 题评测（约 ¥3.9）
