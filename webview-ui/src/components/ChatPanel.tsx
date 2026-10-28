@@ -19,10 +19,12 @@ import { useState, useEffect, useRef } from 'react';
 import { Message, MessageItem } from './Message';
 import { TodoList } from './TodoList';
 
-// VS Code 在 Webview 里注入 vscode 全局对象
-declare const vscode: {
+// VS Code exposes its Webview API through acquireVsCodeApi(), not a `vscode` global.
+declare function acquireVsCodeApi(): {
   postMessage: (msg: any) => void;
 };
+
+const vscode = acquireVsCodeApi();
 
 interface SlashCmd {
   name: string;

@@ -6,7 +6,38 @@
     <title>Mini-Coder Chat</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      ⭐ 兜底提示（2026-10-28 加）
+
+      为什么需要它：
+        2026-10-28 面板曾经【完全空白】—— 没有报错、没有日志、没有 stack。
+        空白是 agent 类 UI 最难查的故障，因为"什么都没发生"和"发生了但没显示"
+        在屏幕上长得一模一样。
+
+      它是怎么工作的：
+        React 挂载成功时，createRoot(root).render() 会【清空 #root 的内容】，
+        所以这段提示会自动消失。
+        React 没挂载（脚本被 CSP 拦掉 / 资源 404 / 运行时异常）时，
+        这段提示会【留在屏幕上】。
+
+      于是故障形态从：
+        "一片空白，什么都不知道"
+      变成：
+        "屏幕上写着『脚本没跑成功，下面是排查方向』"
+
+      别删这段。要改样式就改，但别删掉内容。
+    -->
+    <div id="root">
+      <div style="font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground, #cccccc); padding: 24px; line-height: 1.8;">
+        <div style="font-size: 15px; margin-bottom: 10px;">⏳ 正在加载 Mini-Coder Chat…</div>
+        <div style="font-size: 12px; opacity: 0.75;">
+          如果这句话一直停在这里，说明<strong>前端脚本没有执行成功</strong>。<br />
+          常见原因：Webview 的 CSP 拦住了脚本加载，或前端资源 404。<br />
+          排查方式：命令面板 → <code>Mini-Coder: 显示日志面板</code>；<br />
+          或在 VS Code 里按 <code>Ctrl+Shift+P</code> → <code>Developer: Toggle Developer Tools</code> 看 Console。
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -142,11 +142,47 @@ echo "// test" >> src/test.txt
 | 现象 | 原因 | 解决 |
 |---|---|---|
 | Webview 显示 "⚠ Webview 未构建" | dist-webview 没生成 | `npm run build:webview` |
+| **聊天面板一片空白（没有任何报错）** | Webview 的 CSP 把前端脚本拦掉了 | 见下面第 8.1 节，**先别瞎改代码** |
 | 命令面板找不到 Mini-Coder 命令 | tsc 没编译 | `npm run compile` 重启 |
 | API 错误 401 | Key 填错 | 命令面板 → 重新设置 API Key |
 | API 错误 429 | LLM rate limit | 换 provider 或等几分钟 |
 | 自动测试不触发 | 文件路径不含 test/spec | 改 tests/ 目录下的文件名 |
 | 中文 commit 返回 "功能: 更新代码" | git diff 为空 | 先 `git add` 或确认有未保存改动 |
+
+### 8.1 空白面板专项排查（2026-10-28 踩过，整了半天才定位）
+
+**症状**：聊天面板打开后**完全空白**。控制台干净，没有 stack，没有 error log。
+
+**先做这三件事**（按顺序，前两步零成本）：
+
+1. **看日志**：命令面板 → `Mini-Coder: 显示日志面板`
+   - 看到 `Webview 已就绪，前端脚本执行成功` → 脚本没问题，问题在别处
+   - 看到 `Webview 未就绪：5 秒内没有收到前端发来的 ready 消息` → **就是 CSP 拦了脚本**
+
+2. **看面板上的字**：现在 `#root` 里有一段静态兜底提示。
+   - React 挂载成功 → 提示自动消失（正常）
+   - 提示**一直停着** → 脚本确实没跑，提示里就写了排查方向
+
+3. **重载窗口**：`Ctrl+Shift+P` → `Developer: Reload Window`
+   - ⚠️ **装完扩展一定要重载**。VS Code 不会自动重载已安装的扩展，
+     而 webview 的 HTML 是**面板创建时一次性写死**的 —— 不重载，你装的是新代码，
+     跑的却还是旧代码。这是最容易被忽略的一步。
+
+4. 还不行就看真正的浏览器控制台：
+   `Ctrl+Shift+P` → `Developer: Toggle Developer Tools` → Console 里找 `Content Security Policy` 报错。
+
+**为什么以前修不好**：这个坑有三层，每层单独看都"没问题"：
+
+| 层 | 内容 |
+|---|---|
+| ① | VS Code 1.142 把扩展的 HTML 塞进 **sandbox iframe**，不再是直接渲染 |
+| ② | 它只会自动重写 CSP 里的 `vscode-resource:` **旧式端点** |
+| ③ | 而 `webview.cspSource` 的真值是 `'self' https://*.vscode-cdn.net` —— 一个 **source 列表**，硬拼进 CSP 在版本间会失配 |
+
+> 旧代码的 CSP 里**没有 nonce**，所以一旦失配就**没有任何兜底** → 静默白屏。
+> 现在改成官方规范（`script-src 'nonce-${nonce}'`），nonce 每次随机生成，
+> **不依赖任何域名推断**。
+> 细节见 `src/webview/html.ts` 的注释，回归测试见 `src/__tests__/webview/html.test.ts`。
 
 ## 9. 重新启动 / 调试
 

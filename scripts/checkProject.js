@@ -741,6 +741,66 @@ function checkEvalBadge() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+ * 12. Webview 空白面板护栏
+ *
+ * ⭐ 2026-10-28 加的，因为真的白过屏。
+ *
+ *   症状：聊天面板打开后【完全空白】。控制台一片干净，没有任何报错。
+ *   根因：Webview 的 CSP 里没有 nonce，而 VS Code 1.142 把你�� HTML
+ *        塞进 sandbox iframe，它只自动重写 `vscode-resource:` 旧式端点 ——
+ *        硬拼 ${cspSource} 一旦域名推断失配，script 被【静默拦掉】。
+ *
+ *   这条守卫守两件事：
+ *     ① CSP 里必须带 nonce（不依赖版本相关的域名推断）
+ *     ② 页面里必须留"加载失败可见"的兜底提示
+ *        —— React 挂载成功时它会自动消失；没挂载时它留在屏幕上。
+ *        这条把"白屏"变成"有文字的白屏"，下次一眼看出是脚本没跑。
+ *
+ *   两个都靠"人记得"是保不住的，所以进 CI。
+ * ═══════════════════════════════════════════════════════════════ */
+function checkWebviewGuard() {
+  const CHECK = 'webview-guard';
+
+  // ① src/webview/html.ts 存在且 CSP 带 nonce
+  const htmlSrcPath = path.join(SRC, 'webview', 'html.ts');
+  if (!fs.existsSync(htmlSrcPath)) {
+    err(CHECK, '找不到 src/webview/html.ts —— Webview HTML 生成逻辑被挪走或删了？');
+  } else {
+    const htmlSrc = fs.readFileSync(htmlSrcPath, 'utf-8');
+    if (!/script-src 'nonce-/.test(htmlSrc) && !/'nonce-\$\{/.test(htmlSrc)) {
+      err(
+        CHECK,
+        'src/webview/html.ts 里的 CSP 没有 nonce。' +
+          '→ 面板可能再次变成空白（VS Code 版本间 CSP 域名推断会变）。',
+      );
+    }
+    if (!/<base href=/.test(htmlSrc)) {
+      err(CHECK, "src/webview/html.ts 没有注入 <base href> 兜底 → 相对路径资源会 404");
+    }
+  }
+
+  // ② webview-ui/index.html 必须留兜底提示
+  const indexHtmlPath = path.join(ROOT, 'webview-ui', 'index.html');
+  if (!fs.existsSync(indexHtmlPath)) {
+    err(CHECK, '找不到 webview-ui/index.html');
+  } else {
+    const indexHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+    if (!indexHtml.includes('正在加载')) {
+      err(
+        CHECK,
+        'webview-ui/index.html 里没有"正在加载"兜底提示。' +
+          '→ 面板出问题时会是【完全空白】，没有任何线索。' +
+          '请把 #root 里的兜底 div 放回去（React 挂载成功后会自动清掉它）。',
+      );
+    }
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, 'Webview 护栏齐全（CSP 带 nonce + 空白兜底提示）');
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 function main() {
@@ -756,6 +816,7 @@ function main() {
     checkWorkflowContexts,
     checkReportIsolation,
     checkEvalBadge,
+    checkWebviewGuard,
   ];
 
   for (const c of checks) {

@@ -11,6 +11,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
+import { buildWebviewHtml } from './html';
 import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
@@ -50,6 +52,9 @@ export class ChatPanel {
   private readonly _extensionContext: vscode.ExtensionContext;
   private readonly _configManager: ConfigManager;
   private _disposed = false;
+  /** ⭐ Webview 就绪探针：面板创建后开始计时，等前端发 'ready' */
+  private _readyTimer: ReturnType<typeof setTimeout> | undefined;
+  private _readyReceived = false;
   // 多轮对话历史（system + 历史 messages）
   private _messages: any[] = [];
   // ⭐ 中断控制器：前端点"停止" → abort() → provider 的 fetch 和 shell 子进程都会被取消
@@ -105,6 +110,9 @@ export class ChatPanel {
 
     this._panel.webview.html = this._getHtml();
 
+    // ⭐ 启动就绪探针：5 秒内收不到 'ready' 就说明前端脚本没跑起来（多半是 CSP 拦截）
+    this._armReadyProbe();
+
     // 接收 Webview 消息
     this._panel.webview.onDidReceiveMessage((msg) => this._handleMessage(msg));
 
@@ -150,11 +158,50 @@ export class ChatPanel {
   }
 
   /**
+   * ⭐ Webview 就绪探针（2026-10-28 加）
+   *
+   * 背景：面板"完全空白"是 agent 类 UI 最难查的故障 ——
+   * 没有 stack trace，没有 error log，屏幕上只有一片黑。
+   * 而 webview 端【本来就会发一条 'ready'】（见 webview-ui 的 useEffect），
+   * 所以"有没有收到 ready"就是"前端脚本跑起来没有"的唯一可靠信号。
+   *
+   * 于是：
+   *   · 收到 ready   → 清掉定时器，记一条正常日志
+   *   · 超时没收到  → 记一条【明确的错误日志】，直接告诉你大概率是 CSP 拦了脚本
+   *
+   * 代价：零（webview 端完全不用改）。
+   * 收益：白屏从"不知道"变成"日志里有一行明确结论"。
+   */
+  private _armReadyProbe() {
+    this._clearReadyProbe();
+    this._readyTimer = setTimeout(() => {
+      if (this._readyReceived) return;
+      logError(
+        'Webview 未就绪：5 秒内没有收到前端发来的 ready 消息。' +
+          '→ 前端脚本【没有执行成功】。最常见原因是 Webview 的 CSP 拦住了脚本加载。' +
+          '排查：① 命令面板 → Mini-Coder: 显示日志面板；' +
+          '② Ctrl+Shift+P → Developer: Toggle Developer Tools 看 Console 的 CSP 报错；' +
+          '③ 确认 dist-webview/index.html 存在（npm run build:webview）。',
+      );
+    }, 5000);
+  }
+
+  private _clearReadyProbe() {
+    if (this._readyTimer) {
+      clearTimeout(this._readyTimer);
+      this._readyTimer = undefined;
+    }
+  }
+
+  /**
    * 处理 Webview 来的消息
    */
   private async _handleMessage(msg: any) {
     switch (msg.type) {
       case 'ready':
+        this._readyReceived = true;
+        this._clearReadyProbe();
+        info('Webview 已就绪，前端脚本执行成功');
         // Webview 准备就绪，告诉它当前状态 + slash command 列表
         this._postMessage({ type: 'status', content: 'ready' });
         this._postMessage({ type: 'slash_commands', commands: listSlashCommands() });
@@ -591,8 +638,19 @@ export class ChatPanel {
    * 读取 dist-webview/index.html，注入到 Webview
    * 如果没构建过（首次），提示用户构建
    */
+  /**
+   * 读取 dist-webview/index.html，注入到 Webview
+   *
+   * ⭐ 实际的 HTML 加工逻辑在 `src/webview/html.ts`（纯函数，可单测）。
+   * 这里只负责提供"从 vscode API 拿到的外部依赖"。
+   *
+   * 为什么要抽出去：这段逻辑原先是私有方法，依赖真实的 vscode 对象，
+   * 导致 2026-10-28 那个"面板全白"的问题【无法写单测、无法复现】。
+   * 抽成纯函数之后，才有下面这套可断言的三重保险。
+   */
   private _getHtml(): string {
-    const htmlPath = path.join(this._extensionUri.fsPath, 'dist-webview', 'index.html');
+    const webviewRoot = vscode.Uri.joinPath(this._extensionUri, 'dist-webview');
+    const htmlPath = path.join(webviewRoot.fsPath, 'index.html');
 
     if (!fs.existsSync(htmlPath)) {
       return `<!DOCTYPE html>
@@ -608,33 +666,27 @@ npm run build
 </body></html>`;
     }
 
-    let html = fs.readFileSync(htmlPath, 'utf-8');
+    const raw = fs.readFileSync(htmlPath, 'utf-8');
     const webview = this._panel.webview;
 
-    // 关键修复 1：手动注入 CSP meta，放宽 script-src 让 module script 能加载
-    // VS Code 1.86+ 默认 CSP 太严，module script 会被静默拒绝 → 黑屏
-    const cspSource = webview.cspSource;
-    const metaCsp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${cspSource} 'self' 'unsafe-inline' 'unsafe-eval'; style-src ${cspSource} 'self' 'unsafe-inline'; img-src ${cspSource} 'self' data: https:; font-src ${cspSource} 'self' data:;">`;
-    html = html.replace(/<head>/i, `<head>\n    ${metaCsp}`);
-
-    // 关键修复 2：去掉 crossorigin 属性（VS Code webview 不发 CORS headers，带 crossorigin 会加载失败）
-    html = html.replace(/\s+crossorigin(?=[\s>])/g, '');
-
-    // 把相对路径的 CSS/JS 资源转成 webview 可访问的 URI（file://）
-    html = html.replace(/(href|src)="\.\/(.*?)"/g, (_match, attr, file) => {
-      const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist-webview', file));
-      return `${attr}="${uri}"`;
+    return buildWebviewHtml(raw, {
+      cspSource: webview.cspSource,
+      // 每次加载生成新的 nonce —— 这是 CSP 里唯一不依赖版本推断的部分
+      nonce: crypto.randomBytes(16).toString('base64'),
+      baseUri: webview.asWebviewUri(webviewRoot).toString(),
+      resolveResource: (rel) =>
+        webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, rel)).toString(),
     });
-
-    return html;
   }
 
   private _dispose() {
     this._disposed = true;
+    this._clearReadyProbe();
     ChatPanel.currentPanel = undefined;
   }
 
   public dispose() {
+    this._clearReadyProbe();
     this._panel.dispose();
   }
 }

@@ -261,6 +261,8 @@ abort → max_iterations → user_prompt_submit → steer_inject → todo_inject
 | **评测题文件用了 CRLF** | **标准答案自己都跑不过** | 评测题文件**必须保持 LF 换行** |
 | **`.vscodeignore` 不读 `.gitignore`** | 280KB 评测产物 + 整个前端 node_modules 被打进 VSIX | `vsce` 只读 `.vscodeignore`，两份要各自维护 |
 | **`out/__tests__/` 被打进包** | 编译后的测试代码进了 VSIX，还会触发 vsce 的密钥扫描 | 显式排除 `out/__tests__` 和 `out/eval` |
+| **Webview 的 CSP 里没有 nonce** | **聊天面板一片空白，且没有任何报错** | 用官方规范 `script-src 'nonce-${nonce}'`（nonce 每次随机生成，不依赖版本相关的域名推断）。细节见 `src/webview/html.ts` |
+| **装完扩展不重载窗口** | 装的是新代码，跑的却是旧代码；webview 的 HTML 在面板创建时就写死了 | `Ctrl+Shift+P` → `Developer: Reload Window`。F5 调试模式下则用 `Ctrl+R` 重启 Extension Host |
 
 ---
 
