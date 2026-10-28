@@ -137,3 +137,38 @@ describe('buildWebviewHtml —— 面板白屏回归测试', () => {
     expect(out).toContain('nonce=');
   });
 });
+
+/**
+ * ⭐ 自诊断探针的护栏
+ *
+ * 白屏故障里最要命的是"React 没挂载 → 证据传不回来"。
+ * 探针就是为这种场景准备的，所以它必须：
+ *   ① 真的被注入，且带 nonce（否则被 CSP 拦掉）
+ *   ② 排在模块脚本【之前】（否则 React 崩了它也没机会跑）
+ *   ③ 自己不调 acquireVsCodeApi（一个 webview 只能 acquire 一次）
+ */
+describe('buildWebviewHtml —— 自诊断探针注入', () => {
+  const PROBE = 'window.__miniCoderDiag = { alive: true };';
+  const withProbe = buildWebviewHtml(VITE_OUTPUT, { ...OPTS, probeScript: PROBE });
+
+  it('探针必须被注入，且带 nonce', () => {
+    expect(withProbe).toContain(`<script nonce="${OPTS.nonce}">${PROBE}</script>`);
+  });
+
+  it('探针必须排在模块脚本【之前】', () => {
+    const probeAt = withProbe.indexOf(PROBE);
+    const moduleAt = withProbe.indexOf('index-abc123.js');
+    expect(probeAt).toBeGreaterThan(-1);
+    expect(moduleAt).toBeGreaterThan(-1);
+    expect(probeAt).toBeLessThan(moduleAt);
+  });
+
+  it('探针不得调用 acquireVsCodeApi（抢调会把前端搞崩）', () => {
+    expect(PROBE.toLowerCase()).not.toContain('acquirevscodeapi');
+  });
+
+  it('没有传 probeScript 时不注入多余脚本', () => {
+    const plain = buildWebviewHtml(VITE_OUTPUT, OPTS);
+    expect(plain.match(/<script[^>]*>/g)?.length).toBe(1);
+  });
+});

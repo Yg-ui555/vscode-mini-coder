@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { buildWebviewHtml } from './html';
+import { buildProbeScript, DIAG_GLOBAL, DIAG_MESSAGE_TYPE, normalizeIncomingMessage } from './diagnostics';
 import { ConfigManager } from '../config';
 import { OpenAIProvider } from '../agent/provider';
 import { AgentLoop } from '../agent/loop';
@@ -196,8 +197,12 @@ export class ChatPanel {
   /**
    * 处理 Webview 来的消息
    */
-  private async _handleMessage(msg: any) {
-    switch (msg.type) {
+  private async _handleMessage(rawMsg: any) {
+    // 兜底通路可能送来字符串（见 normalizeIncomingMessage 的说明）
+    const msg = normalizeIncomingMessage(rawMsg);
+    if (!msg) return;
+
+    switch (msg?.type) {
       case 'ready':
         this._readyReceived = true;
         this._clearReadyProbe();
@@ -255,6 +260,96 @@ export class ChatPanel {
         await vscode.commands.executeCommand(msg.command);
         info(`通过 Webview 触发了命令：${msg.command}`);
         break;
+      case DIAG_MESSAGE_TYPE:
+        // ⭐ webview 自诊断证据：把内部错误搬回扩展进程
+        this._handleDiag(msg.payload);
+        break;
+    }
+  }
+
+  /**
+   * ⭐ 处理 webview 自诊断证据
+   *
+   * 为什么要有这个：
+   *   webview 里的报错只在浏览器 DevTools 控制台里，
+   *   而 DevTools 要人手动打开 —— 自动化排障根本无从下手。
+   *   2026-10-28 的白屏故障就是因为这个：扩展日志里什么都没有。
+   *
+   * 现在：webview 把证据回传 → 落盘 → 任何人（包括 AI 助手）都能直接读。
+   */
+  private _handleDiag(raw: any) {
+    try {
+      // ⚠️ 兜底通路（window.parent.postMessage）送过来的可能是【字符串】，
+      //    主通路（acquireVsCodeApi.postMessage）送过来的是对象。
+      //    两种都得能处理，否则证据收不到，白跑一趟。
+      let payload = raw;
+      if (typeof raw === 'string') {
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          warn(`[webview 诊断] 收到无法解析的字符串证据：${raw.slice(0, 200)}`);
+          return;
+        }
+      }
+      // 双重包裹：host 可能把消息再包一层 {message: ...}
+      if (payload && typeof payload === 'object' && payload.message && !payload.events) {
+        payload = payload.message;
+        if (typeof payload === 'string') {
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            warn(`[webview 诊断] 内层字符串无法解析：${String(payload).slice(0, 200)}`);
+            return;
+          }
+        }
+      }
+
+      const events = Array.isArray(payload?.events) ? payload.events : [];
+      if (events.length === 0) {
+        info('[webview 诊断] 收到空证据包');
+        return;
+      }
+
+      // 只把"有信息量"的事件写进日志，避免刷屏
+      const interesting = events.filter((e: any) =>
+        ['csp_violation', 'error', 'unhandledrejection', 'console_error', 'probe_alive'].includes(e?.type),
+      );
+
+      for (const e of interesting) {
+        const detail = e.detail ? JSON.stringify(e.detail) : '';
+        if (e.type === 'csp_violation') {
+          logError(
+            `[webview CSP 违规] 指令=${e.detail?.violatedDirective} ` +
+              `被拦资源=${e.detail?.blockedURI} 源文件=${e.detail?.sourceFile}:${e.detail?.lineNumber}`,
+          );
+        } else if (e.type === 'error') {
+          logError(
+            `[webview 资源/运行时错误] ${e.detail?.tag || 'script'} ` +
+              `${e.detail?.src || e.detail?.filename || ''} ${e.detail?.message || ''}`.trim(),
+          );
+        } else if (e.type === 'unhandledrejection') {
+          logError(`[webview 未处理异常] ${e.detail?.reason || ''}`);
+        } else if (e.type === 'console_error') {
+          logError(`[webview console.error] ${(e.detail?.args || []).join(' | ')}`);
+        } else if (e.type === 'probe_alive') {
+          info(
+            `[webview 探针存活] acquireVsCodeApi=${e.detail?.hasAcquire} ` +
+              `readyState=${e.detail?.readyState}`,
+          );
+        }
+      }
+
+      // 完整证据落盘：快照体积大、但排障时价值最高
+      const dir = this._sessionsDir();
+      const file = path.join(dir, 'webview-diag.json');
+      try {
+        fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), events }, null, 2), 'utf8');
+        info(`[webview 诊断] 证据已落盘：${file}（${events.length} 条）`);
+      } catch (e: any) {
+        warn(`[webview 诊断] 证据落盘失败：${e?.message || e}`);
+      }
+    } catch (e: any) {
+      warn(`[webview 诊断] 处理证据失败：${e?.message || e}`);
     }
   }
 
@@ -668,14 +763,17 @@ npm run build
 
     const raw = fs.readFileSync(htmlPath, 'utf-8');
     const webview = this._panel.webview;
+    const nonce = crypto.randomBytes(16).toString('base64');
 
     return buildWebviewHtml(raw, {
       cspSource: webview.cspSource,
       // 每次加载生成新的 nonce —— 这是 CSP 里唯一不依赖版本推断的部分
-      nonce: crypto.randomBytes(16).toString('base64'),
+      nonce,
       baseUri: webview.asWebviewUri(webviewRoot).toString(),
       resolveResource: (rel) =>
         webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, rel)).toString(),
+      // ⭐ 注入自诊断探针：把 webview 内部的错误搬回扩展进程，落盘成证据
+      probeScript: buildProbeScript(nonce),
     });
   }
 

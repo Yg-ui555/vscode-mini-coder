@@ -67,6 +67,8 @@ export interface WebviewHtmlOptions {
   resolveResource: (relativePath: string) => string;
   /** dist-webview 根目录的 webview URI，用于 <base href> */
   baseUri: string;
+  /** ⭐ 可选：注入到 <head> 末尾的自诊断探针脚本（见 src/webview/diagnostics.ts） */
+  probeScript?: string;
 }
 
 /**
@@ -125,6 +127,25 @@ export function buildWebviewHtml(raw: string, opts: WebviewHtmlOptions): string 
   //    万一将来出现 ./a/../b/x.js 或不带 ./ 的相对路径，
   //    <base> 能兜住它们，统一解析到 dist-webview。
   html = html.replace(/<head>/i, `<head>\n    <base href="${opts.baseUri}/">`);
+
+  // ⑥ ⭐ 注入自诊断探针（必须在模块脚本【之前】，否则 React 崩了探针也没了）
+  //    详见 src/webview/diagnostics.ts 的说明。
+  //    探针只【采集证据】并存到 window 上，不自己调 acquireVsCodeApi
+  //    （VS Code 规定一个 webview 只能 acquire 一次，探针抢调会把前端搞崩）。
+  if (opts.probeScript) {
+    const probe = `    <script nonce="${opts.nonce}">${opts.probeScript}</script>\n  `;
+    if (/<script/i.test(html)) {
+      // ⭐ 插在【第一个 <script> 之前】，靠文档顺序保证探针先执行。
+      //    之前插在 </head> 前，而 vite 把模块脚本放在 <head> 里，
+      //    探针实际排在模块脚本【之后】——虽然 module 是 deferred 所以能跑，
+      //    但这依赖浏览器时序，语义上也不符合"探针必须先于前端"的约定。
+      //    用函数式替换：探针脚本里若含 $ 不会被当成替换模式。
+      html = html.replace(/<script/i, () => probe + '<script');
+    } else {
+      // 极端情况（产物里没有 <script>）：退化成插在 </head> 前
+      html = html.replace(/<\/head>/i, () => `${probe}</head>`);
+    }
+  }
 
   return html;
 }

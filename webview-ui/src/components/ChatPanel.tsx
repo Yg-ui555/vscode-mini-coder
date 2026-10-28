@@ -171,6 +171,21 @@ export function ChatPanel() {
     window.addEventListener('message', handler);
     vscode.postMessage({ type: 'ready' });
 
+    // ⭐ 把 webview 内部的自诊断证据回传给扩展
+    //   探针（扩展注入的脚本）只负责采集，采集结果存在 window.__miniCoderDiag。
+    //   这里负责回传 —— 因为 acquireVsCodeApi 一个 webview 只能调一次，
+    //   探针抢调会把前端自己搞崩。
+    const diag = (window as any).__miniCoderDiag;
+    const flushDiag = () => {
+      const events = diag?.events || [];
+      if (!events.length) return;
+      vscode.postMessage({ type: 'diag_report', payload: { events } });
+    };
+    // 立刻回一次（此时可能只有 probe_alive），再延迟回一次完整的
+    flushDiag();
+    setTimeout(flushDiag, 2000);
+    setTimeout(flushDiag, 5000);
+
     return () => window.removeEventListener('message', handler);
   }, []);
 
