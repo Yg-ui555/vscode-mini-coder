@@ -801,6 +801,68 @@ function checkWebviewGuard() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+ * 13. Webview 端必须用 acquireVsCodeApi()，不能声明假的 vscode 全局
+ *
+ * ⭐ 2026-10-28 加的 —— 这是白屏面板【真正的直接根因】。
+ *
+ *   旧代码这么写：
+ *     declare const vscode: { postMessage: (msg: any) => void };
+ *
+ *   看起来没问题，但 —— `declare` 是【TypeScript 的类型声明】，
+ *   编译后**什么都不剩**，运行时根本不存在一个叫 `vscode` 的全局变量。
+ *
+ *   而 VS Code 的 webview 里**没有** `vscode` 全局对象，
+ *   唯一正确的拿 API 的方式是：
+ *     const vscode = acquireVsCodeApi();
+ *
+ *   于是运行时第一行 `vscode.postMessage(...)` 就抛
+ *   "vscode is not defined" → React 挂载直接崩 → 面板一片空白，
+ *   而且【控制台里什么都没有】（异常发生在 webview 里，不在扩展宿主里）。
+ *
+ *   为什么难查：
+ *     · 扩展宿主日志一切正常（面板创建了、状态栏注册了）
+ *     · 错误在 webview 内部，扩展宿主看不到
+ *     · 白屏和"加载中"在屏幕上长得一模一样
+ *
+ *   修法（2026-10-28）：改成 acquireVsCodeApi()，
+ *   并加这条守卫 —— 谁再改回 declare const vscode，CI 立刻红。
+ * ═══════════════════════════════════════════════════════════════ */
+function checkVscodeApiUsage() {
+  const CHECK = 'vscode-api';
+  const chatPanelPath = path.join(ROOT, 'webview-ui', 'src', 'components', 'ChatPanel.tsx');
+
+  if (!fs.existsSync(chatPanelPath)) {
+    err(CHECK, '找不到 webview-ui/src/components/ChatPanel.tsx');
+    return;
+  }
+
+  const src = fs.readFileSync(chatPanelPath, 'utf-8');
+
+  if (/declare\s+const\s+vscode\s*:/.test(src)) {
+    err(
+      CHECK,
+      'ChatPanel.tsx 里用了 `declare const vscode: {...}`。' +
+        '→ `declare` 只是 TS 类型声明，编译后不存在，运行时是 "vscode is not defined" → ' +
+        'React 挂载崩溃 → 聊天面板【完全空白】且没有任何报错。' +
+        '正确写法：`const vscode = acquireVsCodeApi();`',
+    );
+  }
+
+  if (!/acquireVsCodeApi\s*\(/.test(src)) {
+    err(
+      CHECK,
+      'ChatPanel.tsx 里没有调用 acquireVsCodeApi()。' +
+        '→ VS Code webview 里没有 `vscode` 全局对象，' +
+        '必须用 acquireVsCodeApi() 拿 API，否则面板无法与扩展通信。',
+    );
+  }
+
+  if (!errors.some((e) => e.startsWith(`[${CHECK}]`))) {
+    note(CHECK, 'Webview 正确使用 acquireVsCodeApi()');
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 function main() {
@@ -817,6 +879,7 @@ function main() {
     checkReportIsolation,
     checkEvalBadge,
     checkWebviewGuard,
+    checkVscodeApiUsage,
   ];
 
   for (const c of checks) {
