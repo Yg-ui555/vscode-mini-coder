@@ -142,7 +142,13 @@ function statTools() {
 
   const meta = fs.readFileSync(path.join(ROOT, 'src', 'agent', 'tools', 'meta.ts'), 'utf-8');
   const rm = meta.match(/export const ReadOnlyToolNames\s*=\s*\[([\s\S]*?)\]\s*as const;/);
-  const readOnly = rm ? [...rm[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).length : 0;
+  // ⚠️ 这里必须留【名字数组】，不能只留个数：
+  //   下面展开 `...ReadOnlyToolNames` 时要用它。
+  //   （2026-10-28 修：之前只留了个数 `readOnly`，展开那行还在用不存在的
+  //    `readOnlyNames` → `npm run stats` 直接 ReferenceError 崩掉。
+  //    之所以一直没人发现：这个脚本不在任何 CI job 里。）
+  const readOnlyNames = rm ? [...rm[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : [];
+  const readOnly = readOnlyNames.length;
 
   // 名字数（含展开的 ReadOnlyToolNames）—— 用 Set 去重，
   // 因为工厂里可能有多个类映射到同一个工具名

@@ -2,7 +2,7 @@
   "name": "vscode-mini-coder",
   "displayName": "Mini-Coder AI 编程助手",
   "description": "AI 编程助手：自动跑测试 + 中文 commit + 错题本归档，支持 BYOK（自带 API key）模式",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "shuxiangke-minicoder",
   "repository": {
     "type": "git",

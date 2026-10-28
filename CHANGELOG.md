@@ -4,6 +4,61 @@
 
 ---
 
+## [0.4.1] — 2026-10-28
+
+**这一版的关键词：面板白屏的真正根因在宿主层，不在扩展代码里。**
+
+0.4.0 把功能与评测补齐了，但聊天面板一直全白 ——
+而且**没有任何报错**（扩展日志、renderer.log、控制台全干净）。
+这一版把这件事查到底、修掉，并把查的过程沉淀成三个能复用的工程能力。
+
+### 修复
+
+- ⭐⭐⭐ **聊天面板全白 —— 真根因是宿主层的 Service Worker 版本冲突**：
+  - VS Code 1.142 要求 webview 的 Service Worker 版本 `v6`，本机注册的还是旧版 `?v=5`
+    → 走「替换更新」流程 → 抛 `InvalidStateError` → **HTML 根本没写进 iframe** → 面板纯白
+  - 每次启动白等 30 秒的元凶是一个 `inno_updater.exe`：它在等一个**根本不存在**的
+    `Code.exe`（那个半死的安装目录里只有 `new_Code.exe`）→ 永远等不到 →
+    永远不退出 → 一直占着 `vscode-updating` 互斥锁 → 等待期间 webview 文档不处于
+    active 状态 → SW 注册必然失败
+  - 处理：清 Service Worker 数据库（先备份，用重命名代替删除）+ 杀掉占锁进程 +
+    移走半死的安装目录 + `update.mode: none` 从根上断掉自动更新
+  - 完整根因链、走过的 4 条弯路、复发自查清单：
+    **[docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md](docs/WEBVIEW_BLANK_PANEL_POSTMORTEM.md)**
+- ⭐⭐ **CI 的 4 个 ubuntu-only 失败**：
+  - `promptSnapshot`：归一化时没统一路径分隔符 —— Windows 写 `\`、Linux 写 `/`，
+    同一份 prompt 算出两个快照 → **Windows 本地全绿、ubuntu CI 全红**，
+    而 diff 里只差一个反斜杠，看着像玄学
+  - `runShell` / `criticalBugs`：断言里写死的 `C:/Windows/...` 在 POSIX 上不是绝对路径，
+    会被当成相对路径解析进工作区 → 路径白名单反而放行 → 文件真的被写进去了
+  - 改法：按平台挑一个**真实存在**的系统目录，并加断言守住「绝对 + 越界」这个前提
+    （目录必须存在 —— 否则白名单一坏，spawn 报 ENOENT，测试会**假通过**）
+- ⭐⭐ **CI 的 eval smoke 失败**：`.env` 与 `process.env` 两条路都读，
+  之前只读 `.env` —— CI 里 secret 明明注进去了，评测却说「❌ 找不到 API Key」
+
+### 新增
+
+- ⭐⭐⭐ **webview 自诊断通道**（`src/webview/diagnostics.ts`）：
+  CSP 违规 / 资源 404 / 未捕获异常 / `console.error` / DOM 快照 / 资源加载耗时
+  → 实时回传扩展进程 → 证据落盘 `webview-diag.json`
+  （探针**不碰** `acquireVsCodeApi` —— 一个 webview 只能 acquire 一次，抢调会把前端搞崩）
+- ⭐⭐ **就绪探针**：前端 5 秒内没发 `ready` → 记一条**明确的**错误日志。
+  没有它时，「面板是白的」这件事在日志里长这样：**什么都没有**
+- ⭐ **快照归一化跨平台断言**（新增 2 条）：把「跨平台」变成可判定的性质 ——
+  不管斜杠往哪边倒，归一化之后必须一模一样
+- ⭐ `mini-coder.openOnStartup` 设置：启动后自动打开聊天面板，
+  冒烟测试可以无人值守地取证
+- ⭐ `Ctrl+Alt+Shift+M` 打开聊天面板
+- ⭐ `scripts/build-install.ps1`：编译 → 前端 → 测试 → 守卫 → 打包 → 安装，一条命令跑完
+
+### 一个反面教材
+
+写进了复盘文档：**「用『日志里没有记录』推断『事情没发生』」是错的** ——
+`fatal-error` 只弹通知，根本不写日志。
+凡是这么推断的，先确认那件事到底会不会写日志。
+
+---
+
 ## [0.4.0] — 2026-10-26
 
 **这一版的关键词：让项目从"能跑"变成"能被验证"。**

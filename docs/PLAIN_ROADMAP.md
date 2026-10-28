@@ -100,6 +100,15 @@ $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/actions/runs
 {"total_count": 0, "workflow_runs": []}     ← 一次都没有
 ```
 
+> ✅ **已解决（2026-10-28）**：分支名改对之后，CI 第一次跑起来就暴露了 5 个 job 级问题
+> ——`job` 级 `if` 用了 `secrets` 上下文（GitHub 直接拒绝加载整个 workflow 文件）、
+> 4 个 ubuntu-only 失败（快照的路径分隔符、断言里写死的 Windows 绝对路径）、
+> `eval smoke` 找不到 API Key（只读 `.env` 不读 `process.env`）。
+> 全部修完后：**5 个 job 全绿**，CI 徽章第一次变成绿的。
+>
+> **教训**：CI 从"没跑过"到"跑起来"之间，还隔着"跑起来之后它是红的"。
+> 前者只花 10 分钟，后者花了一整天。
+
 **比喻**：你在门口装了个"自动开门感应器"，但**接错线了**，
 而且**你从来没按过那个开关**（你一直是手动跑测试的）。
 
@@ -114,22 +123,20 @@ $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/actions/runs
 
 ---
 
-### 问题 4：GitHub Release = 0
+### ✅ 问题 4：GitHub Release = 0（已解决 2026-10-28）
 
 ```
 $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/releases
-[]
+[{"tag_name": "v0.4.1", "assets": [{"name": "vscode-mini-coder-0.4.1.vsix"}]}]
 ```
 
-你本地有 tag `v0.4.0`，但**没发 Release**。
+已发布 **v0.4.1**，附 VSIX 安装包（404 KB / 102 个文件）。
 
-**比喻**：你车修好了，也贴了"v0.4.0"的贴纸，但**没去车管所上牌**。
+**比喻**：你车修好了，也贴了贴纸，这次**真去车管所上牌了**。
 
 **面试现场**：
-> 面试官："你说你发布了 v0.4.0？"
-> 你：（点开链接，404）
-
-**这一下，所有其他真话都跟着贬值了。**
+> 面试官："你说你发布了 v0.4.1？"
+> 你：（点开链接，**404.5 KB 的安装包直接下载**）
 
 ---
 
@@ -224,12 +231,12 @@ const isAdvertised = (n: string): boolean => {
 
 **这一张卡的回报最大，因为成本最低。**
 
-- [ ] 修 CI 分支名 → 推送 21 个提交
-- [ ] **确认 CI 真跑了**（看 Actions 日志，不只看徽章）
-- [ ] 重跑 30 题评测（≈¥3.9）
-- [ ] 校正 README 里的数字（9→11 个工具、23→30 题）
-- [ ] 发 GitHub Release v0.4.0
-- [ ] 写 `AGENTS.md`
+- [x] 修 CI 分支名 → 推送 21 个提交
+- [x] **确认 CI 真跑了**（看 Actions 日志，不只看徽章）—— 2026-10-28 首次全绿
+- [x] 重跑 30 题评测（≈¥3.9）
+- [x] 校正 README 里的数字（9→11 个工具、23→30 题）
+- [x] 发 GitHub Release v0.4.1
+- [x] 写 `AGENTS.md`
 
 ### 🚀 卡片 2：Phase 10 补入场券（W1~W3）
 

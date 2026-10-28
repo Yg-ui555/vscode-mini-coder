@@ -1306,7 +1306,7 @@ npm run eval:repeat 3
 
 **类比**：手机 App 的安装包。
 
-**你项目里**：`vscode-mini-coder-0.4.0.vsix`（375 KB）。
+**你项目里**：`vscode-mini-coder-0.4.1.vsix`（405 KB / 102 个文件）。
 ⚠️ **注意 `.vscodeignore` 只读它，不读 `.gitignore`** —— 你的注释里详细写了
 这个坑（差点把 280KB 评测产物 + 整个前端 node_modules 打包进去）。
 
@@ -1326,8 +1326,8 @@ npm run eval:repeat 3
 
 **通俗解释**：**一个正式版本**，带版本号、带说明、带安装包。
 
-**你项目里**：本地有 tag `v0.4.0`，**但 GitHub Release = 0**。
-⚠️ **这是信誉问题**：简历写"已发布"，面试官一点是 404。
+**你项目里**：已发布 **v0.4.1**（附 VSIX 安装包），tag `v0.4.1`。
+✅ 这条信誉问题已解决 —— 面试官点开链接能直接下载安装包，不是 404。
 
 ---
 
@@ -1338,7 +1338,8 @@ npm run eval:repeat 3
 **类比**：产品包装上的"国家免检"标志。
 
 **你项目里的**：TypeScript / VS Code / License / CI / eval / VSIX 六个。
-⚠️ **CI 徽章现在是灰的** —— 而徽章是唯一"自动更新"的信任证明。
+✅ **CI 徽章现在是绿的**（2026-10-28 首次 5 个 job 全绿）——
+徽章是唯一"自动更新"的信任证明，它绿了，别人就不需要问你"测试到底跑不跑"。
 
 ---
 
@@ -1346,7 +1347,7 @@ npm run eval:repeat 3
 
 **通俗解释**：**给某个 commit 起个版本名**。
 
-**你项目里**：`v0.4.0`、`baseline-before-hardening`。
+**你项目里**：`v0.4.1`、`v0.4.0`、`baseline-before-hardening`。
 
 ---
 

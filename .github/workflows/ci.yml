@@ -133,6 +133,17 @@ jobs:
       - name: Project self-check
         run: npm run check
 
+      # ⭐ stats.js 是"数字权威源" —— README、简历、术语表里的每个数字都从它出。
+      #
+      #   为什么必须放进 CI（2026-10-28 加）：
+      #     之前 stats.js 自己就崩了（ReferenceError: readOnlyNames is not defined），
+      #     而【没有任何 job 跑它】—— 脚本烂在仓库里，半年都没人发现。
+      #     数字权威源一旦不可信，"文档数字和代码对不上"这种慢性病就没人兜底了。
+      #
+      #   它跑得很快（只读文件、不调 LLM），失败就是真失败。
+      - name: Stats (single source of truth for the numbers)
+        run: npm run stats
+
   # ───────────────────────────────────────────────────────────
   # Job 3：评测冒烟
   #

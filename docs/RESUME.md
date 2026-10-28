@@ -71,7 +71,8 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 | 输入/输出 token 比 | **96.8% / 3.2%**（输入 3,238,445 / 输出 105,745） | `eval/RESULTS.md` | — |
 | 消融实验 | 摘 grep：pass rate 不变，成本 **-25%**（¥1.57→¥1.18）；摘 grep+run_shell：仍 100% | `eval/ABLATION.md` | `npm run eval -- --ablate grep` |
 | CI 矩阵 | Linux + Windows 双平台 + 评测冒烟 + 打包守卫 | `.github/workflows/ci.yml` | — |
-| **VSIX 体积** | **0.38 MB / 97 个文件**（打包守卫阈值 2 MB） | `npm run vscode:package` | `vscode-mini-coder-0.4.0.vsix` |
+| **VSIX 体积** | **0.40 MB / 102 个文件**（打包守卫阈值 2 MB） | `npm run vscode:package` | `vscode-mini-coder-0.4.1.vsix` |
+| **GitHub Release** | **v0.4.1 已发布**（附 VSIX 安装包），tag `v0.4.1` | https://github.com/Yg-ui555/vscode-mini-coder/releases | `gh release create v0.4.1` |
 
 ### ✅ 这张表已刷新到最新（2026-10-28）
 
