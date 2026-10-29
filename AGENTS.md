@@ -24,14 +24,15 @@
 **VS Code AI 编程助手。** 一个自研的 ReAct Agent 运行时 + 一套能证明"改好了而且没弄坏别处"的回归检测评测体系。
 TypeScript，**零运行时依赖**（只用 Node 内置模块 + `fetch`）。
 
-| 规模 | 实测值（2026-10-28） |
+| 规模 | 实测值（2026-10-29） |
 |---|---|
-| 源码 | `src/` 非测试 **91 个文件 / 19,091 行** |
-| 测试 | **38 个文件 / 8,541 行 / 579 个用例** |
+| 源码 | `src/` 非测试 **93 个文件 / 20,156 行** |
+| 测试 | **41 个文件 / 9,140 行 / 622 个用例** |
 | 工具 | **11 个**（4 只读 + 3 状态 + 3 写 + 1 执行） |
-| Agent 管线 | **9 个 Operation**（`src/agent/operations/`） |
+| Agent 管线 | **9 个 Operation**（`src/agent/operations/`，共 11 个文件） |
 | MCP | **stdio 客户端**（`src/agent/mcp/`，7 文件 / 1,363 行） |
 | 评测集 | **30 题**（5 简单 / 16 困难 / 9 对抗）+ 30 份标准答案 |
+| 前端 | `webview-ui/src/` **10 个文件 / 2,379 行** |
 
 > 行数口径：按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
 > 用 `Measure-Object -Line` 会低估 17.9%（它不计空行）。
@@ -269,10 +270,10 @@ abort → max_iterations → user_prompt_submit → steer_inject → todo_inject
 ## 🛠 常用命令
 
 ```powershell
-npm test                 # 579 个用例（约 90s）
-npm run check            # 架构守卫（7 项）—— 提交前必跑
+npm test                 # 622 个用例（约 90s）
+npm run check            # 架构守卫（13 项）—— 提交前必跑
 npm run compile          # tsc
-npm run eval             # 全量 30 题评测（约 ¥3.9）
+npm run eval             # 全量 30 题评测（约 ¥7.3）
 npm run eval:dry         # 只验证评测框架链路，不花钱
 npm run eval:solvable    # 验证每道题的标准答案都能跑通（证明题不是废题）
 npm run eval:repeat 3    # 同一批题跑 3 次，看方差
@@ -280,6 +281,19 @@ npm run eval:ablate grep # 消融：摘掉 grep 工具看结果变差多少
 npm run audit            # 对真实项目做改造分析
 npm run vscode:package   # 打 VSIX
 ```
+
+**改前端 UI 时**（不装插件就能在浏览器里看）：
+
+```powershell
+cd webview-ui && npm run dev
+# 打开 http://localhost:5173/preview.html?state=full&theme=dark
+#   ?state=empty | full    空状态 / 有对话
+#   ?theme=dark | light    深色 / 亮色主题
+```
+
+> 预览页会模拟一次真实的 agent 运行（发一串假的 postMessage），
+> 所以**不用配 API key、不用装插件**就能调版式。
+> 改完记得 `npm run build:webview` 出正式产物。
 
 **提交前检查清单**：
 ```powershell

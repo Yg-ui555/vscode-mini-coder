@@ -73,7 +73,7 @@ f8df92e docs: 架构文档 + README 证据段 + 简历/面试素材包
 
 GitHub 上 `pushed_at` 停在 `2026-10-23T12:07:19Z`。
 
-**你丢掉了什么**：Todo 面板、子智能体、插话、11 个 Operation 管线化、
+**你丢掉了什么**：Todo 面板、子智能体、插话、9 个 Operation 管线化、
 架构文档、CI 文件、v0.4.0、简历素材包 —— **GitHub 上的访客一个都看不到。**
 
 ---
@@ -130,7 +130,7 @@ $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/releases
 [{"tag_name": "v0.5.0", "assets": [{"name": "vscode-mini-coder-0.5.0.vsix"}]}]
 ```
 
-已发布 **v0.5.0**，附 VSIX 安装包（约 415 KB / 103 个文件）。
+已发布 **v0.5.0**，附 VSIX 安装包（约 449 KB / 104 个文件）。
 
 **比喻**：你车修好了，也贴了贴纸，这次**真去车管所上牌了**。
 

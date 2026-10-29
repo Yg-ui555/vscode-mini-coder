@@ -5,9 +5,9 @@
 > 2. **下一个接手的人** —— 你要加一个新工具 / 一个新 Operation / 一个新 provider，照着第 6 节做就行。
 >
 > **数据都是实测的**，不是估计值。统计口径：
-> `src/` 下非测试 `.ts` 文件 **91 个 / 19,091 行**；
-> `src/__tests__/` 下测试 **38 个文件 / 8,541 行**；
-> `webview-ui/src/` **1,002 行**（6 个文件，含 styles.css 480 行）。
+> `src/` 下非测试 `.ts` 文件 **93 个 / 20,156 行**；
+> `src/__tests__/` 下测试 **41 个文件 / 9,140 行**；
+> `webview-ui/src/` **2,379 行**（10 个文件，含 styles.css 1,068 行）。
 >
 > 口径说明：行数按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
 > 用 `Measure-Object -Line` 会得到 15,683 行——它不计空行，低估 17.9%。
@@ -187,26 +187,40 @@ messages 里有一大坨历史
 
 | 模块 | 职责 | 关键文件 | 规模 |
 |---|---|---|---|
-| **agent/** | Agent 运行时（纯逻辑） | `loop.ts` | 211 行 |
+| **agent/** | Agent 运行时（纯逻辑） | 见下方 15 行 | 10,252 行 |
+| ├ loop.ts | 主循环 | `loop.ts` | 211 行 |
+| ├ provider.ts | OpenAI 兼容协议客户端 + fallback | `provider.ts` `providerFallback.ts` | 659 行 |
+| ├ context.ts | system prompt 拼装（按工具可用性裁剪） | `context.ts` | 309 行 |
+| ├ toolOutputStore.ts | 大输出外置存储 | `toolOutputStore.ts` | 360 行 |
+| ├ store.ts | agent 运行时状态 | `store.ts` | 367 行 |
+| ├ trust.ts | 不可信数据边界（提示注入防护） | `trust.ts` | 155 行 |
+| ├ visibility.ts | 双可见性（模型视图 / 用户视图） | `visibility.ts` | 62 行 |
+| ├ steering.ts | 插话（steering）注入 | `steering.ts` | 68 行 |
+| ├ limits.ts | 运行时限额 | `limits.ts` | 69 行 |
 | ├ operations/ | 主循环拆成的 **9 个 Operation**（+ types.ts / index.ts 共 11 个文件） | `types.ts` `index.ts` | 1,505 行 |
 | ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | 4,009 行 |
 | ├ mcp/ | MCP stdio 客户端（JSON-RPC 协议 / 子进程 / 管理器 / schema 归一化） | `stdioClient.ts` `protocol.ts` | 1,363 行 |
-| ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` | — |
-| ├ todo/ | 待办清单状态（内存 + session 持久化） | `store.ts` | — |
-| ├ provider.ts | OpenAI 兼容协议客户端 + fallback | `provider.ts` | — |
-| ├ context.ts | system prompt 拼装（按工具可用性裁剪） | `context.ts` | — |
-| ├ visibility.ts | 双可见性（模型视图 / 用户视图） | `visibility.ts` | — |
-| ├ trust.ts | 不可信数据边界（提示注入防护） | `trust.ts` | 155 行 |
-| **webview/** | 扩展 ↔ Webview 的消息编解码 | `panel.ts` | 640 行 |
-| **webview-ui/** | React 前端（聊天、待办、插话） | `components/` | 1,002 行 |
+| ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` `runner.ts` | 971 行 |
+| ├ todo/ | 待办清单状态（内存 + session 持久化） | `store.ts` | 144 行 |
+| **webview/** | 扩展 ↔ Webview 的消息编解码 + 面板自检诊断 | `panel.ts` `html.ts` `diagnostics.ts` | 1,156 行 |
+| **webview-ui/** | React 前端（操作时间线 / 待办 / 插话 / 状态条） | `components/`：`ChatPanel` `OperationList` `StatusStrip` `EmptyState` `Message` `TodoList` `icons` | 2,379 行 |
 | **session/** | 会话持久化 + 中断续跑 | `store.ts` `resume.ts` | 687 行 |
 | **observability/** | OTel 风格 span 记录器 | `spans.ts` | 183 行 |
-| **commands/** | 命令面板命令 | `doctor.ts` `traces.ts` `sessions.ts` `permissions.ts` | 731 行 |
+| **commands/** | 命令面板命令 | `doctor.ts` `traces.ts` `sessions.ts` `permissions.ts` | 853 行 |
 | **slashCommands/** | 聊天框内 `/xxx` 命令（11 个） | `registry.ts` | 343 行 |
 | **features/** | 特色功能（自动测 / 中文 commit / 错题本） | `autoTest.ts` `zhCommit.ts` `notes.ts` | 947 行 |
 | **skills/** | 技能包加载（渐进式：索引 / 正文两档） | `loader.ts` `index.ts` `types.ts` | 772 行 |
 | **util/** | token 估算 / diff / 协议修复 / 大输出外置 | `historyRepair.ts` `tokens.ts` | 1,333 行 |
-| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,292 行 |
+| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,365 行 |
+| **types/** | 跨模块环境声明 | `ambient.d.ts` | 22 行 |
+| **（根级）** | 扩展入口 / 配置 / 日志 / 重试 / 错误类型 | `extension.ts` `config.ts` `logger.ts` `retry.ts` `errors.ts` | 1,243 行 |
+
+> **「规模」列的口径**（写下来是为了能被复核，别改了就没人知道怎么算的）：
+> 行数 = `文件内容.split('\n').length`（物理行数，**含空行**，与 `scripts/stats.js` 完全一致）。
+> 每一行都是**该目录下所有 `.ts` 文件的行数之和**，`src/__tests__/` 不计入任何一行；
+> 15 个 `agent/` 子行相加 = 10,252 行，与 `agent/` 那行相等。
+> 全部相加 = **20,156 行 / 93 个 `.ts` 文件**，与 `node scripts/stats.js` 的 `src/` 合计一致。
+> （`webview-ui/` 那行不在 `src/` 里，是前端独立目录，别把它加到 20,156 上去。）
 
 ### 工具清单（11 个）
 
@@ -286,7 +300,7 @@ messages 里有一大坨历史
 **为什么不用 LLM 打分**：goose 用 LLM judge 来判断"这次操作要不要问用户"。
 本项目明确拒绝，理由写在 `src/agent/tools/approval.ts`：
 
-1. **慢**：每���工具调用多一次 LLM 往返（几百毫秒到几秒）
+1. **慢**：每次工具调用多一次 LLM 往返（几百毫秒到几秒）
 2. **烧钱**：一次任务几十次工具调用，就是几十次额外请求
 3. **判不准**：LLM 判断"这是不是危险操作"本身就可能被注入
 4. **不可预测**：同样的操作两次判断可能不一样，用户没法建立信任

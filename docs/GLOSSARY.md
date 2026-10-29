@@ -242,9 +242,13 @@ while (true) {
   ctx.iteration++;
 }
 ```
-> **你把它拆成了 11 个 Operation**（abort / max_iterations / user_prompt_submit /
-> steer_inject / todo_inject / context_guard / inference / tool_execution / stop_hook …）。
+> **你把它拆成了 9 个 Operation**（abort / max_iterations / user_prompt_submit /
+> steer_inject / todo_inject / context_guard / inference / tool_execution / stop_hook）。
 > **这是从"一坨代码"变成"一条流水线"的典型改造，面试必讲。**
+>
+> ⚠️ 常见口误：把 `src/agent/operations/` 的**文件数**（11 个）说成 Operation 数。
+> 那个目录里只有 **9 个**是 Operation，另外两个是 `types.ts`（契约）和 `index.ts`（装配）。
+> 真相源：`src/agent/operations/index.ts` 的 `ALL_OPERATION_NAMES`（9 项）。
 
 ---
 
@@ -1153,7 +1157,7 @@ npm run eval:repeat 3
 
 **解决什么问题**：
 > agent 的测试**天生不确定**（温度、模型版本、工具顺序都影响）。
-> 所以：每次跑评测要花钱（¥3.9），结果还可能抖，
+> 所以：每次跑评测要花钱（30 题约 ¥7.3），结果还可能抖，
 > 分不清"我改好了"还是"这次运气好"。
 
 **你项目里**：❌ 还没做，在路线图 Phase 11。
@@ -1248,7 +1252,7 @@ npm run eval:repeat 3
 ```
 ✓ [provider-enum] provider 名单一致（4 个）
 ✓ [tool-registry] 工具名单一致（注册 16 个，只读 4 个）
-✓ [file-size] 所有源文件都在 800 行以内（最大：src/webview/panel.ts 640 行）
+✓ [file-size] 所有源文件都在 800 行以内（最大：src/webview/panel.ts 790 行）
 ✓ [vscodeignore] .vscodeignore 排除项与保留项都齐全
 ✓ [eval-oracle] 30 道题全部有标准答案
 ✓ [no-secret] 源码里没有疑似真实密钥
@@ -1306,7 +1310,7 @@ npm run eval:repeat 3
 
 **类比**：手机 App 的安装包。
 
-**你项目里**：`vscode-mini-coder-0.5.0.vsix`（约 412 KB / 103 个文件）。
+**你项目里**：`vscode-mini-coder-0.5.0.vsix`（约 449 KB / 104 个文件）。
 ⚠️ **注意 `.vscodeignore` 只读它，不读 `.gitignore`** —— 你的注释里详细写了
 这个坑（差点把 280KB 评测产物 + 整个前端 node_modules 打包进去）。
 
