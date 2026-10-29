@@ -8,7 +8,29 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml)
 [![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%2093%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
-[![VSIX](https://img.shields.io/badge/VSIX-0.41%20MB-brightgreen)](ARCHITECTURE.md)
+[![VSIX](https://img.shields.io/badge/VSIX-0.44%20MB-brightgreen)](ARCHITECTURE.md)
+
+---
+
+## 界面预览
+
+界面不是"好看就行"，它是**信息架构的产物**。
+
+一次 agent 任务通常要调 20~60 次工具。如果把每次调用的入参、出参全铺开，90% 的版面就是 JSON —— 人根本读不下去。所以这里把对话改成了**事件时间线**：左边一条竖线串起全过程，每个工具调用折叠成一行，点开才看参数和结果。
+
+| 深色主题 | 亮色主题 |
+| --- | --- |
+| ![深色主题下的对话界面：左侧竖线串起「指令 → 思考 → 工具调用 → 结论」，每个工具调用折叠成一行](docs/screenshots/chat-dark.png) | ![亮色主题下的对话界面：同一套设计令牌在亮色下完整生效](docs/screenshots/chat-light.png) |
+
+**空状态**——第一次打开不是一片空白，而是先告诉你它能干什么：
+
+![空状态：一句定位文案、三个可点击的示例任务、五个快捷命令](docs/screenshots/empty-dark.png)
+
+**工具调用详情**——点开任意一行，看得到完整的入参和返回：
+
+![工具调用详情：read_file 的参数与结果分两块展示](docs/screenshots/operation-expanded.png)
+
+> 这几张图由仓库内的开发预览页生成（`webview-ui/preview.html`），**不需要真实 API key**，任何人 clone 下来都能离线复现。
 
 ---
 
@@ -375,7 +397,7 @@ npm run audit -- "D:\wxu\wxu-multimodal-smart-agent" --task scripts/example-task
 | **技能包渐进加载** | ✅ | ✅ | ✅ |
 | **重复调用检测** | ✅ 四重校验 + 写后失效 | ❌ | ✅ |
 | **并行工具调用** | ✅ 只读并行/写串行 | ✅ | ✅ |
-| **MCP 客户端** | ✅ stdio（4 源文件 + 36 测试） | ✅ 整个 crate | ✅ 2.5k 行 |
+| **MCP 客户端** | ✅ stdio（7 源文件 + 36 测试） | ✅ 整个 crate | ✅ 2.5k 行 |
 | **中文 commit / 错题本** | ✅ | ❌ | ❌ |
 
 > 对比的三个项目都是各自赛道的标杆（goose 是 Block 的工业级 agent，
@@ -384,7 +406,7 @@ npm run audit -- "D:\wxu\wxu-multimodal-smart-agent" --task scripts/example-task
 >
 > ⚠️ **MCP 那一行要看清楚**：
 > goose 有 `goose-mcp` 整个 crate、nanobot 有 2500 行 MCP 客户端，
-> **它们在这一项上确实更成熟**。本项目只做 **stdio 一条传输**（不��� HTTP/SSE/OAuth），
+> **它们在这一项上确实更成熟**。本项目只做 **stdio 一条传输**（不做 HTTP/SSE/OAuth），
 > 但把**协议细节做对了** —— 而这些细节恰恰是 nanobot 花了几百行才踩出来的：
 >
 > | 细节 | 踩坑后果 | 本项目怎么做 |
@@ -494,7 +516,7 @@ Hook 机制把它改成 **4 个生命周期点 + 声明式配置**：
 2026 年 agent 岗面试的必问项 —— goose 有 `goose-mcp` 整个 crate，
 nanobot 有 2500 行 MCP 客户端。
 
-本项目实现了 **stdio 传输**（本地进程），4 个源文件 + 36 个单元测试。
+本项目实现了 **stdio 传输**（本地进程），7 个源文件 + 36 个单元测试。
 
 ### 怎么用
 
@@ -692,7 +714,7 @@ npm run check:api -- --provider minimax --model MiniMax-M3
 src/
 ├── agent/
 │   ├── loop.ts            ReAct 主循环（211 行，只负责"按顺序跑管线"）⭐
-│   ├── operations/        11 个 Operation（拆开的主循环）⭐
+│   ├── operations/        9 个 Operation（拆开的主循环）⭐
 │   │   ├── types.ts         Operation 契约 + 三态返回值
 │   │   ├── abort.ts         中断
 │   │   ├── maxIterations.ts 触顶强制收尾
@@ -750,7 +772,7 @@ npm run check:api           # API 连通性自检（真打一次接口，给结�
 npm run eval:verify         # 校验每题 baseline 设计合格
 npm run eval:solvable       # 校验每题不是废题（跑人写的标准答案）
 npm run eval -- --dry       # 验证评测链路（不花钱）
-npm run eval                # 真跑 30 题（约 ¥3.9）
+npm run eval                # 真跑 30 题（约 ¥7.3）
 npm run vscode:package      # 产出 VSIX
 ```
 
@@ -814,15 +836,20 @@ npm run vscode:package      # 产出 VSIX
 
 | 指标 | 数值 |
 |---|---|
-| 最近一次全量评测（**23 题**，2026-10-24） | ¥3.29 |
-| 单题均摊 | ¥0.143 |
-| 总 token | 1,446,013（输入 95.4% / 输出 4.6%） |
+| 最近一次全量评测（**30 题**，2026-10-27） | **¥7.3229** |
+| 单题均摊 | ¥0.2441 |
+| 每通过一题 | ¥0.2615 |
+| 总 token | 3,344,190（输入 96.8% / 输出 3.2%） |
 | CI 里的评测冒烟（2 题） | ≈ ¥0.11 |
-| VSIX 体积 | < 1.5 MB（守卫阈值 2 MB） |
+| VSIX 体积 | **0.44 MB / 104 个文件**（守卫阈值 2 MB） |
 
-> ⚠️ **题库已扩到 30 题，但完整评测还没重跑**（新增 7 道全是 hard / adversarial）。
-> 所以上面这份报告证明的是 **23 题**，不是 30 题。
-> 重跑一次约 ¥3.9 —— 详见 `ROADMAP_V3.md` 任务 9.2。
+> 这份报告证明的是 **30 题**（5 普通 / 16 困难 / 9 对抗）：
+> pass rate **93%（28/30）**、目标 case 修好率 **98%（119/122）**、造成回归 **2**。
+> 数字出自 [`eval/RESULTS.md`](eval/RESULTS.md)，一键复核：`npm run eval`（约 15 分钟 / ¥7.3）。
+>
+> ⚠️ **输入 token 占 96.8%** —— 这是成本结构里最值得盯的一条：
+> ReAct 循环每一步都重发全量上下文，轮数一多 token 就线性涨。
+> 「贵的题不一定是难题，更常见的原因是 agent 在原地打转。」
 > **在重跑之前，本文档里任何地方都不要写"30 题 100%"。**
 
 > 输入 token 占 95.4% 的原因很直接：**ReAct 循环每一步都要重发全部上下文**。
