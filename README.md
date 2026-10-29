@@ -665,6 +665,23 @@ npm run check:api -- --provider minimax --model MiniMax-M3
 > 同理，SecretStorage 里那把 key 会记住它属于哪家；
 > 你换了 provider 之后，它不会被拿去硬打。
 
+**⑤ 同一个 provider 可能有多把 key（MiniMax 就有两套计费模式）**
+
+| key 前缀 | 计费方式 | 从哪拿 | 钱包为 0 时 |
+|---|---|---|---|
+| `sk-api-` | **按量付费** —— 从账户钱包余额扣钱 | 控制台 → 请求管理 | ❌ `402 insufficient_balance_error` |
+| `sk-cp-` | **订阅 Key** —— 走 M Plan / 积分额度 | 控制台 → 订阅付费 → 套餐详情 | ✅ 正常 200 |
+
+> ⚠️ 这两把 key **同一个 provider、同一个模型、同一个 baseUrl**，
+> 唯一区别是钱从哪扣。而服务端对前者只会回一句 `insufficient balance`，
+> **永远不会提示你「你应该去用订阅 Key」**。
+>
+> 实测（2026-10-29）：同一账号、同一模型，
+> `sk-api-` → 402，`sk-cp-` → 200。
+>
+> 💡 所以本项目的 `.env` 模板里把两把都留了位置，
+> 切换只要复制一行 + 改设置里的 provider，**不用改任何代码**。
+
 ---
 
 ## 架构
