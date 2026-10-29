@@ -7,7 +7,7 @@
  *   控制台一片干净，没有任何报错，用户完全不知道发生了什么。
  *
  *   根因链（三层，见 src/webview/html.ts 的完整注释）：
- *     ① VS Code 1.142 把你�� HTML 塞进 sandbox iframe
+ *     ① VS Code 1.142 把你的 HTML 塞进 sandbox iframe
  *     ② 它只自动重写 CSP 里的 `vscode-resource:` 旧式端点
  *     ③ 而 `webview.cspSource` 的真值是 `'self' https://*.vscode-cdn.net`
  *        —— 硬拼 `${cspSource}` 在版本间会失配，script 被静默拦掉

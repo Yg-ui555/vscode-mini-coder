@@ -333,7 +333,7 @@ ROADMAP_V2:1134 写着：
 | "200KB+ 代码量" | 那是 nanobot 的**全量矩阵**（stdio + HTTP + SSE + OAuth + SSRF + 7 家 provider 的 schema 归一化）。**你只需要 stdio 一条路**，实测你的注册表和协议校验已经是 MCP-ready，工作量低一个数量级 |
 | "VS Code 用户已有 Copilot 的 MCP 生态，再做一套是重复建设" | **Copilot 是竞品不是生态。**你要证明的是"你能把 agent 接进任意 MCP 服务器"，不是"你能造一个更好的 Copilot"。**接进去 ≠ 重复建设** |
 | "简历里可以写'评估过并给出不做的技术判断'" | 这话**现在不成立**——因为你 GitHub topic 已经写了 `mcp`。**空头支票比诚实的"没做"伤害大得多** |
-| — | **2026 年 agent 岗面试，MCP 是必问题。**goose 有整个 `goose-mcp` crate，nanobot 有 2500 行 MCP 客户端。你不��，会被直接问住 |
+| — | **2026 年 agent 岗面试，MCP 是必问题。**goose 有整个 `goose-mcp` crate，nanobot 有 2500 行 MCP 客户端。你不会，会被直接问住 |
 
 > **比喻**：ROADMAP_V2 当时的判断是"造涡轮发动机投入太大，先不造，车照样能开"。
 > 这在 2026-10-23 是对的。**但两天后市场变了**——现在车要上赛道，

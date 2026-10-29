@@ -116,7 +116,7 @@ const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 
  *     就会出现【拿 MiniMax 的 key 去打 DeepSeek】这种组合 —— 服务端只会回你一个
  *     401 authorized_error，而错误信息完全不会告诉你"key 配错家了"。
  *
- *   类比：钥匙串上���把钥匙，MiniMax 的钥匙插进 DeepSeek 的锁，
+ *   类比：钥匙串上每把钥匙，MiniMax 的钥匙插进 DeepSeek 的锁，
  *         锁只会说"钥匙不对"，不会说"你拿错那把了"。
  */
 const PROVIDER_KEY_NAMES: Record<ProviderName, string[]> = {

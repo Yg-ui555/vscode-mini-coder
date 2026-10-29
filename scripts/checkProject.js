@@ -747,7 +747,7 @@ function checkEvalBadge() {
  * ⭐ 2026-10-28 加的，因为真的白过屏。
  *
  *   症状：聊天面板打开后【完全空白】。控制台一片干净，没有任何报错。
- *   根因：Webview 的 CSP 里没有 nonce，而 VS Code 1.142 把你�� HTML
+ *   根因：Webview 的 CSP 里没有 nonce，而 VS Code 1.142 把你的 HTML
  *        塞进 sandbox iframe，它只自动重写 `vscode-resource:` 旧式端点 ——
  *        硬拼 ${cspSource} 一旦域名推断失配，script 被【静默拦掉】。
  *
