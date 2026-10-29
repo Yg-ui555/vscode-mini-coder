@@ -1,20 +1,38 @@
 /**
- * 消息渲染：用户消息、agent 文本、agent 工具调用卡片
+ * 消息渲染
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ⭐ 三种角色的三种待遇
+ *
+ *   用户（指令）  → 带节点的**卡片**，节点是强调色实心
+ *                  语义："这是你下的令，agent 从这里开始干活"
+ *
+ *   Agent（操作）  → 挂在同一根竖线上的**操作节点**
+ *                  语义："这是它干的事，每一件都可查、可展开"
+ *
+ *   Agent（正文）  → **无气泡的通栏排版**
+ *                  语义："这是它想说的话"
+ *
+ *   为什么正文不装在气泡里：
+ *   气泡是"消息"的视觉语言，但 agent 的正文其实是**一份文档**
+ *   （结论、解释、代码片段）。把文档塞进气泡里，行宽被压窄、
+ *   留白被挤掉，长回答读起来憋屈。通栏排版能到 70~80 字符一行，
+ *   那才是长时间阅读的舒适行宽。
+ *
+ * ─────────────────────────────────────────────────────────────
  */
 
-export interface ToolEvent {
-  name: string;
-  args: any;
-  result?: string;
-  isError?: boolean;
-}
+import { OperationList, ToolEvent } from './OperationList';
+import { IconAlert, IconList } from './icons';
+
+export type { ToolEvent };
 
 export interface Message {
   role: 'user' | 'assistant' | 'error';
   content: string;
   tools?: ToolEvent[];
   /**
-   * ⭐ 2026-10-24 双可见性：这条消息已被上下文压缩，模型看不到了，
+   * ⭐ 双可见性：这条消息已被上下文压缩，模型看不到了，
    *   但用户仍可回看 —— 所以灰显 + "已压缩"角标。
    *
    *   类比：档案柜里的一份旧卷宗，已经不再发给模型了，
@@ -23,72 +41,62 @@ export interface Message {
   compacted?: boolean;
 }
 
-export function MessageItem({ message }: { message: Message }) {
+export function MessageItem({
+  message,
+  streaming = false,
+}: {
+  message: Message;
+  streaming?: boolean;
+}) {
   if (message.role === 'user') {
+    return <Directive text={message.content} compacted={message.compacted} />;
+  }
+
+  if (message.role === 'error') {
     return (
-      <div className={`message user${message.compacted ? ' compacted' : ''}`}>
-        {message.content}
+      <div className="mc-error">
+        <span className="mc-error-icon">
+          <IconAlert size={14} />
+        </span>
+        <div className="mc-error-body">{message.content}</div>
       </div>
     );
   }
-  if (message.role === 'error') {
-    return <div className="message error">⚠ {message.content}</div>;
-  }
+
+  const hasOps = !!message.tools && message.tools.length > 0;
+  const hasText = !!message.content && message.content.trim().length > 0;
+
+  if (!hasOps && !hasText) return null;
+
   return (
-    <div className={`message assistant${message.compacted ? ' compacted' : ''}`}>
+    <div className={`mc-turn${message.compacted ? ' compacted' : ''}`}>
       {message.compacted && (
-        <div className="compacted-badge" title="这段对话已被上下文压缩，模型只看到摘要，你仍可回看">
-          📦 已压缩
+        <div className="mc-compacted-badge" title="这段对话已被上下文压缩，模型只看到摘要，你仍可回看">
+          <IconList size={11} />
+          已压缩
         </div>
       )}
-      {message.content && (
-        <div className="content">{message.content}</div>
-      )}
-      {message.tools?.map((t, i) => (
-        <ToolCard key={i} tool={t} />
-      ))}
+      {hasOps && <OperationList tools={message.tools!} streaming={streaming} />}
+      {hasText && <div className="mc-prose">{message.content}</div>}
     </div>
   );
 }
 
-function ToolCard({ tool }: { tool: ToolEvent }) {
+/**
+ * 用户指令卡片
+ *
+ * 用卡片而不是气泡，是因为它是**一个要被引用的对象**
+ * （"按我刚才说的那个改"），卡片有边界、可以被复制、
+ * 未来还能挂"编辑""重发"这类操作。
+ */
+function Directive({ text, compacted }: { text: string; compacted?: boolean }) {
   return (
-    <div className="tool-card" style={{ borderLeftColor: getToolColor(tool.name) }}>
-      <div className="tool-header">
-        <span className="tool-icon">{getToolIcon(tool.name)}</span>
-        <span className="tool-name">{tool.name}</span>
-        {tool.result !== undefined && (
-          <span className={`tool-status ${tool.isError ? 'error' : 'ok'}`}>
-            {tool.isError ? '✗' : '✓'}
-          </span>
-        )}
+    <div className={`mc-directive${compacted ? ' compacted' : ''}`}>
+      <span className="mc-directive-node" aria-hidden="true" />
+      <div className="mc-directive-card">
+        <div className="mc-eyebrow">你的指令</div>
+        <div className="mc-directive-text">{text}</div>
       </div>
-      <div className="tool-section">
-        <div className="tool-label">参数</div>
-        <pre>{JSON.stringify(tool.args, null, 2)}</pre>
-      </div>
-      {tool.result !== undefined && (
-        <div className="tool-section">
-          <div className="tool-label">结果</div>
-          <pre>{tool.result.slice(0, 800)}{tool.result.length > 800 ? '...' : ''}</pre>
-        </div>
-      )}
     </div>
   );
-}
-
-function getToolIcon(name: string): string {
-  if (name.includes('read')) return '📖';
-  if (name.includes('write')) return '✏️';
-  if (name.includes('patch')) return '🔧';
-  if (name.includes('shell')) return '⚡';
-  return '🔨';
-}
-
-function getToolColor(name: string): string {
-  if (name.includes('read')) return '#4ade80';
-  if (name.includes('write')) return '#60a5fa';
-  if (name.includes('patch')) return '#fbbf24';
-  if (name.includes('shell')) return '#f87171';
-  return '#94a3b8';
 }

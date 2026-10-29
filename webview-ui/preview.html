@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini-Coder Chat · 预览（开发用）</title>
+    <style>
+      /*
+       * 模拟 VS Code Dark Modern 主题变量
+       * 目的：不装插件也能在浏览器里看设计效果
+       */
+      :root {
+        --vscode-editor-background: #1f1f1f;
+        --vscode-editor-foreground: #cccccc;
+        --vscode-sideBar-background: #181818;
+        --vscode-panel-border: #2b2b2b;
+        --vscode-widget-border: #313131;
+        --vscode-descriptionForeground: #9d9d9d;
+        --vscode-textLink-foreground: #4daafc;
+        --vscode-charts-blue: #4daafc;
+        --vscode-charts-green: #89d185;
+        --vscode-charts-yellow: #f2cc60;
+        --vscode-errorForeground: #f85149;
+        --vscode-button-background: #0078d4;
+        --vscode-button-foreground: #ffffff;
+        --vscode-button-hoverBackground: #026ec1;
+        --vscode-focusBorder: #0078d4;
+        --vscode-editorWidget-background: #202020;
+        --vscode-textCodeBlock-background: #0a0a0a;
+        --vscode-list-hoverBackground: #2a2d2e;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #1f1f1f;
+      }
+      /* 模拟 VS Code Light Modern 主题变量 */
+      body.vscode-light {
+        --vscode-editor-background: #ffffff;
+        --vscode-editor-foreground: #3b3b3b;
+        --vscode-sideBar-background: #f8f8f8;
+        --vscode-panel-border: #e5e5e5;
+        --vscode-widget-border: #e5e5e5;
+        --vscode-descriptionForeground: #767676;
+        --vscode-textLink-foreground: #005fb8;
+        --vscode-charts-blue: #005fb8;
+        --vscode-charts-green: #388a34;
+        --vscode-charts-yellow: #b89500;
+        --vscode-errorForeground: #e51400;
+        --vscode-button-background: #005fb8;
+        --vscode-button-foreground: #ffffff;
+        --vscode-button-hoverBackground: #0258a8;
+        --vscode-focusBorder: #005fb8;
+        --vscode-editorWidget-background: #f3f3f3;
+        --vscode-textCodeBlock-background: #f3f3f3;
+        --vscode-list-hoverBackground: #e8e8e8;
+      }
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: #1f1f1f;
+      }
+      body.vscode-light,
+      body.vscode-light #root {
+        background: #ffffff;
+      }
+      /* 模拟 VS Code 侧边栏的宽度约束 */
+      #root {
+        width: 420px;
+        height: 100%;
+        border-right: 1px solid #2b2b2b;
+      }
+      body.vscode-light #root {
+        border-right-color: #e5e5e5;
+      }
+    </style>
+  </head>
+  <body class="vscode-dark">
+    <div id="root"></div>
+
+    <script>
+      // ① webview 里 acquireVsCodeApi 由 VS Code 注入，这里给个假实现
+      //    必须在模块脚本【之前】执行 —— 模块脚本是 deferred 的，所以这里天然更早
+      window.acquireVsCodeApi = function () {
+        return {
+          postMessage: function (m) {
+            console.log('[preview] webview → extension:', JSON.stringify(m));
+          },
+        };
+      };
+    </script>
+
+    <script type="module" src="/src/main.tsx"></script>
+
+    <script type="module">
+      // ② 灌入模拟事件，模拟一次真实的 agent 运行
+      const params = new URLSearchParams(location.search);
+      const state = params.get('state') || 'full';
+      const theme = params.get('theme') || 'dark';
+      if (theme === 'light') document.body.className = 'vscode-light';
+
+      function send(data, delay = 0) {
+        setTimeout(() => {
+          window.dispatchEvent(new MessageEvent('message', { data: data }));
+        }, delay);
+      }
+
+      const COMMANDS = [
+        { name: 'test', description: '运行项目测试' },
+        { name: 'commit', description: '生成中文提交信息' },
+        { name: 'undo', description: '撤销上一步改动' },
+        { name: 'notes', description: '查看今日错题本' },
+        { name: 'doctor', description: '环境自检' },
+      ];
+
+      send({ type: 'slash_commands', commands: COMMANDS }, 60);
+
+      if (state === 'full') {
+        send(
+          { type: 'user_input', content: '把 src 目录里重复的 token 估算逻辑抽成一个公共模块' },
+          140,
+        );
+
+        send({ type: 'text', content: '我先看看 src 目录的结构。\n' }, 320);
+
+        send({ type: 'tool_call', name: 'list_dir', args: { path: 'src' } }, 420);
+        send(
+          {
+            type: 'tool_result',
+            name: 'list_dir',
+            result:
+              'agent/\n  loop.ts\n  provider.ts\n  context.ts\ncommands/\n  doctor.ts\nutil/\n  diff.ts\n  tokens.ts\n  cost.ts\n  historyRepair.ts\n',
+          },
+          560,
+        );
+
+        send(
+          {
+            type: 'text',
+            content:
+              '`src/util/tokens.ts` 和 `src/util/historyRepair.ts` 里各有一份 token 估算逻辑。我先确认一下。\n',
+          },
+          700,
+        );
+
+        // 一次发两个 tool_call，再按序发两个 tool_result —— 模拟并行只读工具
+        send({ type: 'tool_call', name: 'read_file', args: { path: 'src/util/tokens.ts' } }, 820);
+        send(
+          { type: 'tool_call', name: 'grep', args: { pattern: 'estimateTokens', path: 'src' } },
+          860,
+        );
+        send(
+          {
+            type: 'tool_result',
+            name: 'read_file',
+            result:
+              'export function estimateTokens(text: string): number {\n  return Math.ceil(text.length / 3.6);\n}\n\nexport function countTokens(messages: any[]): number {\n  return messages.reduce((n, m) => n + estimateTokens(m.content ?? \'\'), 0);\n}\n',
+          },
+          980,
+        );
+        send(
+          {
+            type: 'tool_result',
+            name: 'grep',
+            result:
+              'src/util/tokens.ts:1:export function estimateTokens(text: string): number {\nsrc/util/historyRepair.ts:14:function estimateTokens(text: string): number {\nsrc/util/cost.ts:8:import { estimateTokens } from \'./tokens\';\n',
+          },
+          1040,
+        );
+
+        send(
+          {
+            type: 'text',
+            content:
+              '确认了，两处实现有细微差别（`/3.6` vs `/4`）。我把 `tokens.ts` 那份作为唯一真相源，另一处改成 import。\n',
+          },
+          1180,
+        );
+
+        send(
+          {
+            type: 'tool_call',
+            name: 'apply_patch',
+            args: {
+              path: 'src/util/historyRepair.ts',
+              patch: '@@\n-function estimateTokens(text: string): number {\n-  return Math.ceil(text.length / 4);\n-}\n+import { estimateTokens } from \'./tokens\';\n',
+            },
+          },
+          1300,
+        );
+
+        // 这一步故意【不发】tool_result —— 让它停在"执行中"，
+        // 这样截图能看到状态节点的"运行中"形态
+        send(
+          {
+            type: 'todo',
+            todos: [
+              { content: '定位重复逻辑', status: 'completed' },
+              { content: '抽取公共模块', status: 'in_progress', activeForm: '正在把历史修复里的 token 估算改成 import' },
+              { content: '跑测试验证', status: 'pending' },
+            ],
+          },
+          1380,
+        );
+
+        send({ type: 'usage', content: '18.4k / 128k · 14%' }, 1420);
+      }
+    </script>
+  </body>
+</html>

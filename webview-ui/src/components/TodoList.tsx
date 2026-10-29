@@ -1,14 +1,17 @@
 /**
- * 待办清单组件
+ * 待办清单
  *
- * 显示 agent 当前的多步任务进度。
+ * ─────────────────────────────────────────────────────────────
+ * 为什么进度条在顶栏，这里只留清单
  *
- * ⭐ 为什么前端要单独渲染一份，而不是从消息流里推导
+ *   顶栏那条分段进度条回答的是"**比例**"（干了多少）——
+ *   一眼扫过就够了，不需要再在这里画第二根。
+ *   这里回答的是"**内容**"（具体在干哪几步）。
  *
- *   消息流会被上下文压缩掉，而待办状态存在 session 里 ——
- *   两者的生命周期不同。UI 订阅的是"状态"，不是"历史"。
+ *   同一个信息只画一次，这是"简洁"的底层原则。
  *
- *   类比：黑板（消息流）会被擦，任务看板（待办）不会。
+ *   比喻：仪表盘上有转速表，屏幕上就不该再挂一个同款转速表。
+ * ─────────────────────────────────────────────────────────────
  */
 
 interface Todo {
@@ -24,43 +27,27 @@ interface TodoListProps {
 export function TodoList({ todos }: TodoListProps) {
   if (!todos || todos.length === 0) return null;
 
-  const done = todos.filter((t) => t.status === 'completed').length;
-  const percent = Math.round((done / todos.length) * 100);
-  const current = todos.find((t) => t.status === 'in_progress');
-
   return (
-    <div className="todo-list">
-      <div className="todo-header">
-        <span className="todo-title">📋 任务清单</span>
-        <span className="todo-count">
-          {done}/{todos.length}
-        </span>
+    <section className="mc-todo" aria-label="任务清单">
+      {/*
+        这里【不画计数】—— 顶栏已经有一处了（分段进度条 + n/m）。
+        同一个信息画两次，其中一处必然会被当成噪声。
+        顶栏那处常驻可见、滚动时也在，所以它才是该保留的那一个。
+      */}
+      <div className="mc-todo-head">
+        <span className="mc-todo-title">任务</span>
       </div>
-
-      {/* 进度条 —— 让用户一眼看出"它干了多少" */}
-      <div className="todo-progress">
-        <div className="todo-progress-fill" style={{ width: `${percent}%` }} />
-      </div>
-
-      <ul className="todo-items">
-        {todos.map((t, i) => (
-          <li key={i} className={`todo-item todo-${t.status}`}>
-            <span className="todo-mark">
-              {t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'}
-            </span>
-            <span className="todo-text">
-              {/* 进行中的显示 activeForm（"正在实现 parser"）而不是 content */}
-              {t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}
-            </span>
-          </li>
-        ))}
+      <ul className="mc-todo-items">
+        {todos.map((t, i) => {
+          const label = t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
+          return (
+            <li key={i} className={`mc-todo-item mc-todo-${t.status}`}>
+              <span className="mc-todo-mark" aria-hidden="true" />
+              <span className="mc-todo-text">{label}</span>
+            </li>
+          );
+        })}
       </ul>
-
-      {current && (
-        <div className="todo-current">
-          正在进行：{current.activeForm || current.content}
-        </div>
-      )}
-    </div>
+    </section>
   );
 }

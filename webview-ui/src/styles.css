@@ -1,314 +1,1052 @@
-/* Mini-Coder Webview 样式
-   使用 VS Code 主题变量（--vscode-*）自动跟随编辑器主题 */
+/* ═══════════════════════════════════════════════════════════════════════
+   Mini-Coder Webview 样式
+   ─────────────────────────────────────────────────────────────────────
+   设计方向：【飞行记录仪 / 仪表台】，而不是聊天窗
 
+   为什么不是聊天窗：
+     这个产品的立身之本是"可测量、可证明" —— 它有评测 harness、
+     回归检测、checkpoint、调用链追踪、成本核算、审批闸门。
+     聊天窗把这一切都藏进气泡里；仪表台把它摊开给你看。
+
+   三条规则贯穿全篇：
+     ① 颜色全部走 --vscode-* 主题变量 → 换任何主题都协调
+     ② 层级靠【字号 + 字重 + 留白】建立，不靠颜色堆
+     ③ 每个信息只画一次（进度条在顶栏，列表在待办卡）
+
+   字体说明：
+     CSP 不允许外部字体（font-src 只有 cspSource），
+     所以只能用系统字体。选 Cascadia Code（VS Code 自带）
+     而不是烂大街的 Consolas + Monaco 栈 —— 它是这个宿主的"原生声音"。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────
+   1. 设计令牌
+   ───────────────────────────────────────────────────────────── */
+/*
+ * ⭐ 为什么令牌声明在 body 而不是 :root
+ *
+ *   CSS 自定义属性的 var() 是在【声明它的那一层】完成替换的，
+ *   不是在【使用它的那一层】。
+ *
+ *   如果令牌写在 :root（= html）上：
+ *     :root { --mc-text: var(--vscode-editor-foreground, #ccc); }
+ *   那么 --mc-text 的值会被【html 层的】--vscode-editor-foreground 固化下来。
+ *   万一主题变量注入在 body 上（或者 body 上有覆盖），
+ *   整条链路就静默错位 —— 正文变成浅灰、卡片变成黑块，
+ *   而且没有任何报错。
+ *
+ *   声明在 body 上：
+ *     body { --mc-text: var(--vscode-editor-foreground, #ccc); }
+ *   替换发生在 body 层，而 body 正是主题变量和主题类
+ *   （vscode-light / vscode-dark）真正生效的地方 —— 稳。
+ *
+ *   这个坑是在做亮色主题预览时实测踩出来的：
+ *   深色面板一切正常，一开亮色主题整个版面就垮了。
+ */
+body {
+  /* 表面 */
+  --mc-bg: var(--vscode-editor-background, #1f1f1f);
+  --mc-chrome: var(--vscode-sideBar-background, var(--vscode-editor-background, #1f1f1f));
+  --mc-raised: var(--vscode-editorWidget-background, var(--vscode-editor-background, #252526));
+  --mc-sunken: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+
+  /* 线条 */
+  --mc-line: var(--vscode-panel-border, rgba(127, 127, 127, 0.3));
+  --mc-line-soft: color-mix(in srgb, var(--vscode-panel-border, rgba(127, 127, 127, 0.3)) 55%, transparent);
+  --mc-line-strong: var(--vscode-widget-border, var(--vscode-panel-border, rgba(127, 127, 127, 0.42)));
+
+  /* 文字 */
+  --mc-text: var(--vscode-editor-foreground, #cccccc);
+  --mc-text-2: var(--vscode-descriptionForeground, #9d9d9d);
+  --mc-text-3: color-mix(in srgb, var(--vscode-descriptionForeground, #9d9d9d) 60%, transparent);
+
+  /* 强调 */
+  --mc-accent: var(--vscode-charts-blue, var(--vscode-textLink-foreground, #4daafc));
+  --mc-ok: var(--vscode-charts-green, #3fb950);
+  --mc-warn: var(--vscode-charts-yellow, #d29922);
+  --mc-danger: var(--vscode-errorForeground, #f85149);
+  --mc-focus: var(--vscode-focusBorder, #0078d4);
+
+  /* 字体 */
+  --mc-font: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI',
+    'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --mc-font-display: 'Segoe UI Variable Display', 'Segoe UI', -apple-system,
+    'Microsoft YaHei UI', system-ui, sans-serif;
+  --mc-font-mono: 'Cascadia Code', 'Cascadia Mono', 'SF Mono', 'JetBrains Mono', Consolas,
+    'Liberation Mono', monospace;
+
+  /* 尺寸 */
+  --mc-gutter: 18px;
+  --mc-indent: 26px; /* 时间线内容缩进（竖线在 8px 处） */
+  --mc-radius: 8px;
+  --mc-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+}
+
+/* 亮色主题下阴影收一点，别糊住内容 */
+body.vscode-light {
+  --mc-shadow: 0 8px 26px rgba(0, 0, 0, 0.11);
+}
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --mc-shadow: none;
+  --mc-line-soft: var(--mc-line);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2. 基础
+   ───────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  background: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
-  font-size: 13px;
-  height: 100vh;
-  overflow: hidden;
-}
-
+html,
+body,
 #root {
-  height: 100vh;
-}
-
-.chat-panel {
-  display: flex;
-  flex-direction: column;
   height: 100%;
 }
 
-.messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.empty {
-  padding: 32px 16px;
-  color: var(--vscode-descriptionForeground);
-}
-
-.empty h3 {
-  margin-bottom: 12px;
-  color: var(--vscode-editor-foreground);
-}
-
-.empty ul {
-  margin-top: 8px;
-  padding-left: 20px;
-  list-style: disc;
-}
-
-.empty li {
-  margin: 4px 0;
-  color: var(--vscode-textPreformat-foreground);
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
-}
-
-.message {
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  border-radius: 6px;
+body {
+  font-family: var(--mc-font);
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  font-size: 13px;
   line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-.message.user {
-  background: var(--vscode-input-background);
-  border-left: 3px solid var(--vscode-button-background);
-  white-space: pre-wrap;
-  word-break: break-word;
+::selection {
+  background: color-mix(in srgb, var(--mc-accent) 32%, transparent);
 }
 
-.message.assistant {
-  background: var(--vscode-editor-inactiveSelectionBackground);
-  white-space: pre-wrap;
-  word-break: break-word;
+/* 滚动条：细一点、低调一点，别抢内容的注意力 */
+.mc-body::-webkit-scrollbar {
+  width: 10px;
+}
+.mc-body::-webkit-scrollbar-thumb {
+  background: var(--mc-line);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+.mc-body::-webkit-scrollbar-thumb:hover {
+  background: var(--mc-line-strong);
+  background-clip: content-box;
+}
+.mc-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.message.error {
-  background: var(--vscode-inputValidation-errorBackground);
-  color: var(--vscode-errorForeground);
-  border-left: 3px solid var(--vscode-errorForeground);
+/* ─────────────────────────────────────────────────────────────
+   3. 骨架
+   ───────────────────────────────────────────────────────────── */
+.mc-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
 }
 
-/* ⭐ 双可见性（2026-10-24）：被上下文压缩的历史消息
-   ────────────────────────────────────────────────────────
-   类比：这本笔记的前半部分已经被复印成摘要给助手看了，
-   但原件还在这儿，你可以随时翻出来核对。
-   所以是【灰显】而不是【隐藏】——隐藏会让用户以为对话丢了。 */
-.message.compacted {
-  opacity: 0.55;
-  border-left: 3px solid var(--vscode-descriptionForeground, #888);
-  position: relative;
-}
-
-.message.compacted:hover {
-  opacity: 0.85;
-}
-
-/* 「已压缩」角标 */
-.compacted-badge {
-  display: inline-block;
-  margin-bottom: 6px;
-  padding: 1px 7px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--vscode-descriptionForeground, #888);
-  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.18));
-  border-radius: 3px;
-  user-select: none;
-}
-
-.tool-card {
-  margin-top: 8px;
-  padding: 8px 10px;
-  background: var(--vscode-input-background);
-  border-left: 3px solid;
-  border-radius: 4px;
-}
-
-.tool-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-
-.tool-icon {
-  font-size: 14px;
-}
-
-.tool-name {
-  color: var(--vscode-editor-foreground);
-}
-
-.tool-status {
-  margin-left: auto;
-  font-size: 12px;
-}
-
-.tool-status.ok {
-  color: #4ade80;
-}
-
-.tool-status.error {
-  color: #f87171;
-}
-
-.tool-section {
-  margin-top: 4px;
-}
-
-.tool-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
-  margin-bottom: 2px;
-}
-
-.tool-card pre {
-  padding: 6px 8px;
-  background: var(--vscode-textCodeBlock-background);
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
+.mc-body {
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.typing {
-  padding: 8px 14px;
-  color: var(--vscode-descriptionForeground);
-  font-style: italic;
-  animation: pulse 1.5s ease-in-out infinite;
+.mc-body-inner {
+  padding: 16px var(--mc-gutter) 20px;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-
-.input-area {
-  display: flex;
-  padding: 10px;
-  border-top: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-panel-background);
-  gap: 6px;
-}
-
-.input-area input {
-  flex: 1;
-  padding: 8px 12px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 3px;
-  outline: none;
-  font-family: inherit;
-  font-size: 13px;
-}
-
-.input-area input:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
-.input-area input:disabled {
-  opacity: 0.6;
-}
-
-.input-area button {
-  padding: 8px 18px;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.input-area button:hover:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
-}
-
-.input-area button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ========== 停止按钮（Agent 跑飞时的自救手段） ========== */
-.input-area button.stop-btn {
-  background: #dc2626;
-  color: #fff;
-  border: none;
-  font-weight: 600;
-}
-.input-area button.stop-btn:hover {
-  background: #b91c1c;
-}
-
-/* ========== 输入框底部：新建会话 ========== */
-.input-footer {
+/* ─────────────────────────────────────────────────────────────
+   4. 顶部状态条
+   ───────────────────────────────────────────────────────────── */
+.mc-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px 8px;
-  background: var(--vscode-panel-background);
+  gap: 12px;
+  height: 38px;
+  padding: 0 14px;
+  background: var(--mc-chrome);
+  border-bottom: 1px solid var(--mc-line-soft);
+}
+
+.mc-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mc-brand-mark {
+  color: var(--mc-accent);
+}
+
+.mc-brand-name {
+  font-family: var(--mc-font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.mc-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
+  color: var(--mc-text-2);
 }
 
-.input-footer .link-btn {
-  background: none;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-  padding: 3px 6px;
-  font-size: 11px;
-  border-radius: 3px;
-}
-.input-footer .link-btn:hover:not(:disabled) {
-  background: var(--vscode-list-hoverBackground);
-  color: var(--vscode-foreground);
-}
-.input-footer .link-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
+.mc-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mc-text-3);
 }
 
-.input-footer .hint {
-  color: #6b7280;
-  opacity: 0.8;
+.mc-state.running .mc-state-dot {
+  background: var(--mc-accent);
+  animation: mc-pulse 1.5s ease-in-out infinite;
 }
 
-/* 上下文用量条：让用户看得见"还剩多少额度" */
-.input-footer .usage {
-  color: #6b7280;
-  opacity: 0.75;
+/* 顶栏的任务进度：分段条 —— 一眼看出比例 */
+.mc-todo-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--mc-text-3);
+}
+
+.mc-seg {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.mc-seg i {
+  width: 11px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--mc-line);
+}
+
+.mc-seg i.done {
+  background: var(--mc-ok);
+}
+
+.mc-seg i.cur {
+  background: var(--mc-accent);
+}
+
+.mc-todo-mini-count {
+  font-family: var(--mc-font-mono);
+  font-size: 10.5px;
+  color: var(--mc-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-usage {
+  margin-left: auto;
+  font-family: var(--mc-font-mono);
+  font-size: 10.5px;
+  color: var(--mc-text-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 45%;
   cursor: help;
 }
 
-/* ========== Toast 小弹窗（错误提示 + 修复按钮） ========== */
-
-.toast {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  max-width: 480px;
-  animation: slideInRight 0.2s ease-out;
+/* ─────────────────────────────────────────────────────────────
+   5. 时间线（签名元素）
+   ───────────────────────────────────────────────────────────── */
+.mc-timeline {
+  position: relative;
+  padding-left: var(--mc-indent);
 }
 
-@keyframes slideInRight {
+/* 贯穿整段对话的一根竖线 —— 所有节点都挂在它上面 */
+.mc-timeline::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--mc-line);
+}
+
+.mc-tl-msg,
+.mc-tl-tool,
+.mc-tl-error {
+  position: relative;
+}
+
+/* ── 用户指令 ── */
+.mc-directive {
+  position: relative;
+  margin: 14px 0 16px;
+}
+
+.mc-directive-node {
+  position: absolute;
+  left: -23px;
+  top: 11px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--mc-accent);
+  box-shadow: 0 0 0 3px var(--mc-bg);
+}
+
+.mc-directive-card {
+  background: var(--mc-raised);
+  border: 1px solid var(--mc-line-soft);
+  border-radius: var(--mc-radius);
+  padding: 9px 13px 10px;
+}
+
+.mc-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--mc-text-3);
+  margin-bottom: 4px;
+}
+
+.mc-directive-text {
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Agent 正文 ── */
+.mc-turn {
+  margin: 14px 0 16px;
+}
+
+.mc-prose {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--mc-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mc-prose + .mc-ops {
+  margin-top: 10px;
+}
+
+/* ── 双可见性：被压缩的历史灰显，但还能回看 ── */
+.mc-turn.compacted,
+.mc-directive.compacted {
+  opacity: 0.5;
+}
+
+.mc-turn.compacted:hover,
+.mc-directive.compacted:hover {
+  opacity: 0.85;
+}
+
+.mc-compacted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  color: var(--mc-text-3);
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 20px;
+  user-select: none;
+}
+
+/* ── 错误 ── */
+.mc-error {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--mc-radius);
+  background: color-mix(in srgb, var(--mc-danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mc-danger) 32%, transparent);
+}
+
+.mc-error-icon {
+  color: var(--mc-danger);
+  flex: none;
+  margin-top: 1px;
+}
+
+.mc-error-body {
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── 思考中 ── */
+.mc-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 12px;
+  font-size: 12px;
+  color: var(--mc-text-2);
+}
+
+.mc-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.mc-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mc-accent);
+  animation: mc-bounce 1.3s ease-in-out infinite;
+}
+
+.mc-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.mc-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   6. 操作节点
+   ───────────────────────────────────────────────────────────── */
+.mc-ops {
+  margin: 8px 0;
+}
+
+.mc-op {
+  position: relative;
+}
+
+.mc-op-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px 3px 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mc-op-row:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mc-text) 6%, transparent);
+}
+
+.mc-op-row:disabled {
+  cursor: default;
+}
+
+/* 状态节点：空心=待执行 / 脉冲=执行中 / 实心=成功 / 红环=失败 */
+.mc-op-node {
+  position: absolute;
+  left: -23px;
+  top: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--mc-line);
+  background: var(--mc-bg);
+  flex: none;
+}
+
+.mc-op-done .mc-op-node {
+  border-color: var(--mc-ok);
+  background: var(--mc-ok);
+}
+
+.mc-op-running .mc-op-node {
+  border-color: var(--mc-accent);
+  background: var(--mc-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent) 18%, transparent);
+  animation: mc-pulse 1.4s ease-in-out infinite;
+}
+
+.mc-op-error .mc-op-node {
+  border-color: var(--mc-danger);
+  background: var(--mc-bg);
+}
+
+.mc-op-icon {
+  color: var(--mc-text-3);
+  display: inline-flex;
+  flex: none;
+}
+
+.mc-op-done .mc-op-icon {
+  color: var(--mc-text-2);
+}
+
+.mc-op-error .mc-op-icon {
+  color: var(--mc-danger);
+}
+
+.mc-op-name {
+  font-family: var(--mc-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--mc-text);
+  white-space: nowrap;
+  flex: none;
+}
+
+.mc-op-target {
+  font-family: var(--mc-font-mono);
+  font-size: 11.5px;
+  color: var(--mc-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.mc-op-state {
+  display: inline-flex;
+  flex: none;
+  color: var(--mc-text-3);
+}
+
+.mc-op-done .mc-op-state {
+  color: var(--mc-ok);
+}
+
+.mc-op-error .mc-op-state {
+  color: var(--mc-danger);
+}
+
+.mc-op-caret {
+  display: inline-flex;
+  flex: none;
+  color: var(--mc-text-3);
+  opacity: 0.55;
+  transition: transform 0.16s ease;
+}
+
+.mc-op-caret.open {
+  transform: rotate(90deg);
+  opacity: 1;
+}
+
+.mc-op-row:hover .mc-op-caret {
+  opacity: 1;
+}
+
+/* 展开的细节 */
+.mc-op-detail {
+  margin: 4px 0 10px;
+}
+
+.mc-detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--mc-text-3);
+  margin: 6px 0 3px;
+}
+
+.mc-op-detail pre {
+  font-family: var(--mc-font-mono);
+  font-size: 11.5px;
+  line-height: 1.62;
+  background: var(--mc-sunken);
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow: auto;
+  max-height: 280px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--mc-text);
+}
+
+.mc-spin {
+  animation: mc-rotate 0.9s linear infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   7. 待办清单
+   ───────────────────────────────────────────────────────────── */
+.mc-todo {
+  border: 1px solid var(--mc-line-soft);
+  border-radius: var(--mc-radius);
+  background: var(--mc-raised);
+  padding: 10px 13px 11px;
+  margin-bottom: 14px;
+}
+
+.mc-todo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mc-todo-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--mc-text-3);
+}
+
+.mc-todo-count {
+  font-family: var(--mc-font-mono);
+  font-size: 10.5px;
+  color: var(--mc-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-todo-items {
+  list-style: none;
+}
+
+.mc-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--mc-text-2);
+}
+
+.mc-todo-mark {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  border-radius: 3px;
+  border: 1px solid var(--mc-line-strong);
+}
+
+.mc-todo-in_progress .mc-todo-mark {
+  border-color: var(--mc-accent);
+  background: var(--mc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent) 16%, transparent);
+}
+
+.mc-todo-completed .mc-todo-mark {
+  border-color: var(--mc-ok);
+  background: var(--mc-ok);
+}
+
+.mc-todo-in_progress .mc-todo-text {
+  color: var(--mc-text);
+  font-weight: 500;
+}
+
+.mc-todo-completed .mc-todo-text {
+  color: var(--mc-text-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--mc-line);
+}
+
+.mc-todo-pending .mc-todo-text {
+  color: var(--mc-text-2);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   8. 空状态
+   ───────────────────────────────────────────────────────────── */
+.mc-empty {
+  padding: 40px 4px 26px;
+  max-width: 560px;
+}
+
+.mc-empty-mark {
+  color: var(--mc-accent);
+  margin-bottom: 14px;
+}
+
+.mc-empty-title {
+  font-family: var(--mc-font-display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin-bottom: 8px;
+}
+
+.mc-empty-desc {
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--mc-text-2);
+  margin-bottom: 26px;
+}
+
+.mc-empty-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--mc-text-3);
+  margin-bottom: 8px;
+}
+
+.mc-empty-label-spaced {
+  margin-top: 24px;
+}
+
+.mc-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mc-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 7px;
+  background: var(--mc-raised);
+  color: var(--mc-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.mc-suggestion:hover {
+  border-color: var(--mc-accent);
+  background: color-mix(in srgb, var(--mc-accent) 7%, var(--mc-raised));
+}
+
+.mc-suggestion-arrow {
+  color: var(--mc-text-3);
+  flex: none;
+}
+
+.mc-suggestion:hover .mc-suggestion-arrow {
+  color: var(--mc-accent);
+}
+
+/*
+ * 快捷命令列表
+ *
+ *   ⚠️ 这里踩过一个坑：一开始把 grid 加在了 .mc-cmds 上，
+ *   但 .mc-cmds 的直接子元素是 .mc-cmd（一个整行 div），
+ *   不是 code 和 span —— 于是 grid 的两列落在【两个命令之间】，
+ *   渲染成 "/test运行项目测试" 挤成一团。
+ *
+ *   正确做法：grid 加在 .mc-cmd 内部（每行自己分两列）。
+ *   用 min-width 而不是固定宽度：命令短的时候描述能对齐，
+ *   命令长的时候描述往右让 —— 宁可不对齐，也不能把命令名截断
+ *   （用户没法输入他看不见的命令）。
+ */
+.mc-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mc-cmd {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.mc-cmd code {
+  flex: none;
+  min-width: 74px;
+  font-family: var(--mc-font-mono);
+  font-size: 11.5px;
+  color: var(--mc-accent);
+  white-space: nowrap;
+}
+
+.mc-cmd span {
+  color: var(--mc-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   9. 输入区
+   ───────────────────────────────────────────────────────────── */
+.mc-composer {
+  background: var(--mc-chrome);
+  border-top: 1px solid var(--mc-line-soft);
+  padding: 10px var(--mc-gutter) 8px;
+}
+
+.mc-input-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--mc-bg);
+  border: 1px solid var(--mc-line);
+  border-radius: 10px;
+  padding: 5px 5px 5px 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mc-input-wrap:focus-within {
+  border-color: var(--mc-focus);
+  box-shadow: 0 0 0 1px var(--mc-focus);
+}
+
+.mc-input-wrap textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: none;
+  color: var(--mc-text);
+  font-family: var(--mc-font);
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/*
+ * 输入框里不要出现滚动条
+ *
+ *   输入框最多 6 行，超了才需要滚。而一个 3px 宽的滚动条
+ *   在这么窄的输入区里特别扎眼 —— 尤其在 Windows 上它还带箭头。
+ *   隐藏它，用自动增高来兜底（超出 max-height 才真的会溢出）。
+ */
+.mc-input-wrap textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.mc-input-wrap textarea {
+  scrollbar-width: none;
+}
+
+.mc-input-wrap textarea::placeholder {
+  color: var(--mc-text-3);
+  /*
+   * 占位符不许换行
+   *
+   *   侧边栏宽度不可控（用户能拖到 200px），占位符一换行，
+   *   第二行会被从中间切一半，看起来像渲染坏了。
+   *   宁可被右边裁掉一截，也不能出现半截字。
+   */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.mc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 28px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+
+.mc-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.mc-btn-primary {
+  background: var(--vscode-button-background, #0078d4);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+
+.mc-btn-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, #026ec1);
+}
+
+.mc-btn-ghost {
+  background: transparent;
+  color: var(--mc-text-2);
+  border: 1px solid var(--mc-line);
+}
+
+.mc-btn-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mc-text) 8%, transparent);
+  color: var(--mc-text);
+}
+
+.mc-btn-danger {
+  background: var(--mc-danger);
+  color: #ffffff;
+}
+
+.mc-btn-danger:hover {
+  background: color-mix(in srgb, var(--mc-danger) 82%, #000000);
+}
+
+.mc-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 7px 2px 0;
+  font-size: 11px;
+}
+
+.mc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--mc-text-3);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+
+.mc-link:hover:not(:disabled) {
+  color: var(--mc-text);
+  background: color-mix(in srgb, var(--mc-text) 8%, transparent);
+}
+
+.mc-link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mc-footer-hint {
+  margin-left: auto;
+  color: var(--mc-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   10. Toast
+   ───────────────────────────────────────────────────────────── */
+.mc-toast {
+  position: fixed;
+  top: 46px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 10px 10px 10px 13px;
+  background: var(--mc-raised);
+  border: 1px solid var(--mc-line);
+  border-left: 2px solid var(--mc-accent);
+  border-radius: var(--mc-radius);
+  box-shadow: var(--mc-shadow);
+  z-index: 1000;
+  animation: mc-slide-in 0.18s ease-out;
+}
+
+.mc-toast-error {
+  border-left-color: var(--mc-danger);
+}
+
+.mc-toast-warn {
+  border-left-color: var(--mc-warn);
+}
+
+.mc-toast-content {
+  flex: 1;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mc-toast-action {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--mc-line-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mc-text);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mc-toast-action:hover {
+  background: color-mix(in srgb, var(--mc-text) 9%, transparent);
+}
+
+.mc-toast-close {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--mc-text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.mc-toast-close:hover {
+  color: var(--mc-text);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   11. 动画
+   ───────────────────────────────────────────────────────────── */
+@keyframes mc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes mc-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@keyframes mc-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mc-slide-in {
   from {
-    transform: translateX(120%);
+    transform: translateX(14px);
     opacity: 0;
   }
   to {
@@ -317,163 +1055,13 @@ body {
   }
 }
 
-.toast-error {
-  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
-  color: var(--vscode-errorForeground, #f87171);
-  border-left: 3px solid var(--vscode-errorForeground, #f87171);
-}
-
-.toast-warn {
-  background: #fbbf24;
-  color: #1f2937;
-  border-left: 3px solid #f59e0b;
-}
-
-.toast-info {
-  background: var(--vscode-notificationToast-background, #2563eb);
-  color: white;
-  border-left: 3px solid #3b82f6;
-}
-
-.toast-content {
-  flex: 1;
-  line-height: 1.4;
-}
-
-.toast-action {
-  background: rgba(255, 255, 255, 0.15);
-  color: inherit;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.toast-action:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.toast-close {
-  background: none;
-  border: none;
-  color: inherit;
-  opacity: 0.6;
-  cursor: pointer;
-  padding: 0 4px;
-  font-size: 14px;
-}
-
-.toast-close:hover {
-  opacity: 1;
-}
-/* ═══════════════════════════════════════════════════════════
-   待办清单（Todo List）
-   固定在对话区顶部，让用户一眼看出"agent 干到哪了"
-   ═══════════════════════════════════════════════════════════ */
-
-.todo-list {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 6px;
-  background: var(--vscode-editorWidget-background);
-}
-
-.todo-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.todo-title {
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.todo-count {
-  font-size: 11px;
-  opacity: 0.7;
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-
-.todo-progress {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--vscode-panel-border);
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-
-.todo-progress-fill {
-  height: 100%;
-  background: var(--vscode-charts-green, #4ec9b0);
-  transition: width 0.3s ease;
-}
-
-.todo-items {
-  list-style: none;
-  padding: 0;
-}
-
-.todo-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 2px 0;
-  line-height: 1.5;
-}
-
-.todo-mark {
-  flex-shrink: 0;
-  opacity: 0.85;
-}
-
-.todo-pending .todo-text {
-  opacity: 0.6;
-}
-
-.todo-in_progress .todo-text {
-  color: var(--vscode-charts-blue, #569cd6);
-  font-weight: 500;
-}
-
-.todo-completed .todo-text {
-  opacity: 0.45;
-  text-decoration: line-through;
-}
-
-.todo-current {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--vscode-panel-border);
-  font-size: 11px;
-  opacity: 0.8;
-}
-
-/* ═══════════════════════════════════════════════════════════
-   插话按钮
-   和"停止"并列 —— 不打断当前任务，只排队补一句
-   ═══════════════════════════════════════════════════════════ */
-
-.steer-btn {
-  background: var(--vscode-button-secondaryBackground, #3a3d41);
-  color: var(--vscode-button-secondaryForeground, #ccc);
-  border: none;
-  padding: 6px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.steer-btn:hover:not(:disabled) {
-  background: var(--vscode-button-secondaryHoverBackground, #45494e);
-}
-
-.steer-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+/* 尊重系统的"减少动态效果"设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
