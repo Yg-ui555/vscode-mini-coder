@@ -1306,7 +1306,7 @@ npm run eval:repeat 3
 
 **类比**：手机 App 的安装包。
 
-**你项目里**：`vscode-mini-coder-0.4.1.vsix`（405 KB / 102 个文件）。
+**你项目里**：`vscode-mini-coder-0.5.0.vsix`（约 412 KB / 103 个文件）。
 ⚠️ **注意 `.vscodeignore` 只读它，不读 `.gitignore`** —— 你的注释里详细写了
 这个坑（差点把 280KB 评测产物 + 整个前端 node_modules 打包进去）。
 
@@ -1326,7 +1326,7 @@ npm run eval:repeat 3
 
 **通俗解释**：**一个正式版本**，带版本号、带说明、带安装包。
 
-**你项目里**：已发布 **v0.4.1**（附 VSIX 安装包），tag `v0.4.1`。
+**你项目里**：已发布 **v0.5.0**（附 VSIX 安装包），tag `v0.5.0`。
 ✅ 这条信誉问题已解决 —— 面试官点开链接能直接下载安装包，不是 404。
 
 ---
@@ -1347,7 +1347,7 @@ npm run eval:repeat 3
 
 **通俗解释**：**给某个 commit 起个版本名**。
 
-**你项目里**：`v0.4.1`、`v0.4.0`、`baseline-before-hardening`。
+**你项目里**：`v0.5.0`、`v0.4.1`、`v0.4.0`、`baseline-before-hardening`。
 
 ---
 
@@ -1798,7 +1798,10 @@ GraphRAG 是"先看**人物关系图**，找出谁跟谁有关，再去读相关
 | **方差统计** | **投篮命中率波动大不大** | `eval/statistics.ts` |
 | **CI** | **自动质检**（你配错了，没跑过） | `.github/workflows/ci.yml` |
 | **架构守卫** | **规矩不达标就卡住** | `scripts/checkProject.js` |
-| **VSIX** | **插件安装包** | `vscode-mini-coder-0.4.0.vsix` |
+| **VSIX** | **插件安装包** | `vscode-mini-coder-0.5.0.vsix` |
+| **单一真相源** | **只算一次账，不各算各的** | `src/config.ts` `getEffective()` |
+| **Key 按 provider 配对** | **钥匙串上给每把钥匙贴标签** | `src/config.ts` |
+| **402 / 余额不足** | **油箱空了，不是车坏了** | `src/errors.ts` |
 | **MCP** | **统一的工具插头** | ❌ 待做 |
 | **RAG** | **开卷考试** | wxu 项目 |
 | **Embedding** | **图书馆坐标** | wxu（bge-m3） |

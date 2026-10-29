@@ -105,12 +105,45 @@ export function toUserView(e: any): ErrorView {
 
   // API 限流（429） → 等会儿再试
   if (e instanceof APIError && e.status === 429) {
-    return { message: '⏳ 请求太多，请稍等 10 秒再试' };
+    return { message: '⏳ 被限流了（429）—— 请求太快，请等 10 秒再试' };
   }
 
-  // API 配额超（402/403） → 让用户检查余额
-  if (e instanceof APIError && (e.status === 402 || e.status === 403)) {
-    return { message: '💳 API 配额不足或无权限，请检查账户' };
+  // 模型不存在（404）→ 模型名写错了
+  //   ⚠️ 之前这里没有任何特判，404 会掉进最后的兜底分支，
+  //   用户看到的是「💥 出错了：model not found」——
+  //   告诉他"模型名写错了、去设置里改"比丢一句英文原文有用得多。
+  if (e instanceof APIError && e.status === 404) {
+    return {
+      message: '❓ 模型不存在（404）—— 模型名写错了。\n   去设置界面改 mini-coder.model，或用该 Provider 的默认模型。',
+      action: { label: '去设置', command: 'mini-coder.setApiKey' },
+    };
+  }
+
+  // ⭐⭐ API 余额不足（402）—— 这是【账的问题】，不是 key 的问题（2026-10-29 拆开）
+  //
+  //   MiniMax 返回 402 insufficient_balance_error，DeepSeek 也一样。
+  //   之前 402 和 403 被合并成一句「API 配额不足或无权限，请检查账户」——
+  //   用户看到这句话的第一反应是"去检查 key"，于是反复重填 key、
+  //   反复换 provider，绕了半天才发现：key 一直是好的，【只是没钱了】。
+  //
+  //   所以 402 必须把"去充值 / 换套餐订阅 Key"直接写进提示里。
+  if (e instanceof APIError && e.status === 402) {
+    const topUp = (e as any).topUpUrl;
+    return {
+      message:
+        '💰 账户余额不足 —— key 是有效的，但账户没钱了。\n' +
+        '   去平台「账户钱包 → 充值」；或改用「套餐详情」里的订阅 Key（走套餐额度，不按量扣费）。' +
+        (topUp ? `\n   ${topUp}` : ''),
+    };
+  }
+
+  // API 无权限（403）—— key 有效，但这个账号/套餐不覆盖你要用的模型
+  if (e instanceof APIError && e.status === 403) {
+    return {
+      message:
+        '🚫 账号无权限 —— key 是有效的，但当前套餐不包含这个模型。\n' +
+        '   去平台确认套餐覆盖的模型名，或换用「套餐详情」里的订阅 Key。',
+    };
   }
 
   // API 5xx → 服务端炸了

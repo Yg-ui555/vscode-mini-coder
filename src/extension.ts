@@ -15,7 +15,7 @@ import { registerZhCommit } from './features/zhCommit';
 import { registerNotes } from './features/notes';
 import { setBuiltinStopCheck } from './agent/hooks/manager';
 import { ChatPanel } from './webview/panel';
-import { registerDoctor } from './commands/doctor';
+import { registerDoctor, probeApi } from './commands/doctor';
 import { registerSessionCommands } from './commands/sessions';
 import { registerTracesCommand } from './commands/traces';
 import {
@@ -50,6 +50,23 @@ export async function activate(context: vscode.ExtensionContext) {
   const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   setWorkspaceRoot(wsRoot);
   info(`工作区：${wsRoot ?? '（未打开文件夹，仅允许相对路径）'}`);
+
+  // ⭐⭐ 启动体检（2026-10-29 加）
+  //
+  //   为什么要有：
+  //     本项目被"配置项骗用户"坑过太多次 —— 面板显示 minimax、
+  //     实际打的是 deepseek 的地址；/doctor 显示 key 已设置、
+  //     真正发请求时取到的却是另一把。
+  //
+  //   所以每次启动都把"真正会生效的那一套"打进日志：
+  //     provider 从哪来、model 是什么、key 从哪来（不打印 key 内容）、
+  //     以及一次 max_tokens=1 的真实探测结果。
+  //
+  //   类比：汽车启动时仪表盘自检灯全亮一遍，
+  //         你不用等到开上路才发现"油箱是空的"。
+  //
+  //   ⚠ 探测会真发一个 max_tokens=1 的请求（几分钱以内）。
+  await logStartupHealth();
 
   // ⭐ 三档权限：先把设置里的档位读进权限模块，
   //   否则用户在设置界面/状态栏切了档，工具层根本不知道。
@@ -256,10 +273,18 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // 首次启动引导
-  const hasKey = await configManager.getApiKey();
-  if (!hasKey) {
+  //   ⭐ 用 getEffective() 而不是 getApiKey()：
+  //     SecretStorage 里没 key，但 .env 里有 key（工作区根）的情况很常见。
+  //     之前只看 SecretStorage，插件会在用户【已经配好了】的情况下
+  //     还弹"需要先配置 API Key" —— 又一个"配置项骗用户"。
+  const eff = await configManager.getEffective();
+  if (!eff.key) {
     const action = await vscode.window.showInformationMessage(
-      '欢迎使用 Mini-Coder！需要先配置 LLM API Key（BYOK 模式，零内置费用）',
+      eff.foreignSecret
+        ? `欢迎使用 Mini-Coder！你换成了 ${eff.provider}，但加密存储里那把 key 是 ${
+            eff.secretProvider ?? '别的 provider'
+          } 的。点「立即设置」为 ${eff.provider} 换一把。`
+        : '欢迎使用 Mini-Coder！需要先配置 LLM API Key（BYOK 模式，零内置费用）',
       '立即设置',
       '稍后',
     );
@@ -278,4 +303,51 @@ export function deactivate() {
   // ⭐ MCP 服务器的子进程要杀掉 —— 否则会留下孤儿 node 进程
   void getMcpManager()?.stopAll();
   setMcpManager(null);
+}
+
+/**
+ * ⭐ 启动体检：把"真正会生效的那一套配置"打进日志 + 真打一次接口
+ *
+ *   排在 activate 早期调用，这样用户遇到问题时的第一份日志就能回答
+ *   "到底哪一环坏了"，而不是让用户自己去猜。
+ *
+ *   ⚠️ 这里会发一个 max_tokens=1 的真实请求（几分钱以内）。
+ *      它换来的是：用户第一次打开就知道"key 有效但账户没钱"，
+ *      而不是聊到一半才炸。
+ */
+async function logStartupHealth(): Promise<void> {
+  try {
+    const eff = await configManager.getEffective();
+
+    const providerFrom =
+      eff.providerSource === 'settings'
+        ? '设置界面'
+        : eff.providerSource === 'env'
+          ? '.env'
+          : '上次向导选择';
+
+    const keyFrom =
+      eff.keySource === 'env'
+        ? `.env（${eff.envPath ?? '项目根'}）`
+        : eff.keySource === 'secret'
+          ? 'SecretStorage'
+          : '未就绪';
+
+    info(
+      `生效配置：provider=${eff.provider}（来自${providerFrom}） · model=${eff.model} · baseUrl=${eff.baseUrl}`,
+    );
+    info(
+      eff.key
+        ? `API Key：已就绪（长度 ${eff.key.length}，来源 ${keyFrom}）`
+        : eff.foreignSecret
+          ? `API Key：未就绪 —— SecretStorage 里那把属于 ${eff.secretProvider ?? '别的 provider'}，当前是 ${eff.provider}，没有拿来顶替`
+          : 'API Key：未就绪',
+    );
+
+    // 真打一次接口（不是"检查 key 存不存在"，而是"这个 key 现在能不能用"）
+    const probe = await probeApi(eff);
+    info(`API 连通性：${probe.ok ? '✅' : '❌'} ${probe.detail.replace(/\n\s+/g, ' ')}`);
+  } catch (e: any) {
+    info(`启动体检失败：${e?.message || e}`);
+  }
 }

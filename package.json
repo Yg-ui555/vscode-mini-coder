@@ -2,7 +2,7 @@
   "name": "vscode-mini-coder",
   "displayName": "Mini-Coder AI 编程助手",
   "description": "AI 编程助手：自动跑测试 + 中文 commit + 错题本归档，支持 BYOK（自带 API key）模式",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "shuxiangke-minicoder",
   "repository": {
     "type": "git",
@@ -110,12 +110,12 @@
             "ollama"
           ],
           "default": "deepseek",
-          "markdownDescription": "选择 LLM Provider。**注意**：本项优先级低于项目根目录的 `.env`，高于命令面板里保存的选择。\n\n> 2026-10-22 移除了 `anthropic`：之前它列在这里但代码里没有实现，选了会被静默丢弃并回落到 DeepSeek——属于\"配置项骗用户\"。Anthropic 的接口协议不是 OpenAI 兼容格式（`/v1/messages` + `tool_use`），真要支持需要单独写一个 Provider。\n\n> 改这份 enum 时请同步改 `src/config.ts` 的 `PROVIDER_CONFIGS`，两边不一致就会出现同样的静默失效。"
+          "markdownDescription": "选择 LLM Provider。**优先级**：本项 > 项目根目录的 `.env` > 命令面板里保存的选择。\n\n> 2026-10-29 调整过优先级：以前是 `.env` 赢。改的原因是——用户在界面看到的选择必须是生效的那个，否则就成了\"配置项骗用户\"。`.env` 现在主要服务命令行评测（`npm run eval`）。\n\n> 2026-10-22 移除了 `anthropic`：之前它列在这里但代码里没有实现，选了会被静默丢弃并回落到 DeepSeek——属于\"配置项骗用户\"。Anthropic 的接口协议不是 OpenAI 兼容格式（`/v1/messages` + `tool_use`），真要支持需要单独写一个 Provider。\n\n> 改这份 enum 时请同步改 `src/config.ts` 的 `PROVIDER_CONFIGS`，两边不一致就会出现同样的静默失效。"
         },
         "mini-coder.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "模型 ID。留空则用该 Provider 的默认模型（如 `deepseek-chat`）。优先级：`.env` > 本项 > Provider 默认值。"
+          "markdownDescription": "模型 ID。留空则用该 Provider 的默认模型（如 `deepseek-chat`）。优先级：本项 > `.env` > Provider 默认值。"
         },
         "mini-coder.baseUrl": {
           "type": "string",
@@ -187,6 +187,7 @@
     "stats": "node scripts/stats.js",
     "stats:test": "node scripts/stats.js --test",
     "check:package": "node scripts/checkPackage.js",
+    "check:api": "node scripts/checkApiKey.js",
     "vscode:ls": "npx --yes @vscode/vsce@3 ls",
     "vscode:package": "npm run build:all && npx --yes @vscode/vsce@3 package",
     "vscode:publish": "npm run build:all && npx --yes @vscode/vsce@3 publish --pat $VSCE_TOKEN"

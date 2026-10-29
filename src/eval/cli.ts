@@ -94,8 +94,35 @@ function parseAblate(argv: string[]): string[] {
   return [...new Set(out)];
 }
 
-/** .env / 环境变量里可能出现的 key 名（跟 ConfigManager 保持一致） */
+/** .env / 环境变量里可能出现的 key 名 */
 const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY'];
+
+/**
+ * provider → 它该用哪把 key（跟 src/config.ts 保持同一套规则）
+ *
+ * ⚠️ 为什么必须按 provider 归类（2026-10-29）：
+ *   .env 里同时放 MiniMax 和 DeepSeek 两把 key 时，"谁在后面谁赢"会让评测
+ *   拿 MiniMax 的 key 去打 DeepSeek —— 服务端只回一个 401，
+ *   报错里绝不会告诉你"你拿错那把钥匙了"。
+ */
+const PROVIDER_KEY_NAMES: Record<string, string[]> = {
+  minimax: ['MINIMAX_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  ollama: [],
+};
+
+/** 不挑 provider 的通用 key */
+const GENERIC_KEY_NAMES = ['LLM_API_KEY'];
+
+interface EnvBundle {
+  /** provider → key */
+  keys: Record<string, string>;
+  genericKey?: string;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+}
 
 /**
  * 读 API Key / Provider 配置
@@ -110,17 +137,26 @@ const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 
  *
  *   .env 排在前面：它是开发者本地显式写的，应该赢过环境变量。
  */
-function loadEnvKey(): { key?: string; provider?: string; model?: string; baseUrl?: string } {
-  const out: any = {};
+function loadEnv(): EnvBundle {
+  const out: EnvBundle = { keys: {} };
 
-  // ── 第 1 优先：进程环境变量 ──
+  // ── 先读进程环境变量（CI 的 secret 走这条路）──
   const envKeyName = API_KEY_NAMES.find((n) => process.env[n]);
-  if (envKeyName) out.key = process.env[envKeyName];
+  if (envKeyName) {
+    const v = process.env[envKeyName] as string;
+    const p = Object.keys(PROVIDER_KEY_NAMES).find((k) =>
+      PROVIDER_KEY_NAMES[k].includes(envKeyName),
+    );
+    if (p) out.keys[p] = v;
+    else out.genericKey = v;
+  }
   if (process.env.MINI_CODER_PROVIDER) out.provider = process.env.MINI_CODER_PROVIDER;
   if (process.env.MINI_CODER_MODEL) out.model = process.env.MINI_CODER_MODEL;
   if (process.env.MINI_CODER_BASE_URL) out.baseUrl = process.env.MINI_CODER_BASE_URL;
 
-  // ── 第 2 优先：项目根 .env ──
+  // ── 再读项目根 .env（⭐ 它覆盖环境变量）──
+  //   理由同上：.env 是开发者本地显式写的，应该赢过环境变量。
+  //   所以这一段是【赋值】而不是【补空】。
   const envPath = path.join(path.resolve(evalRoot(), '..'), '.env');
   if (!fs.existsSync(envPath)) return out;
   for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
@@ -130,13 +166,25 @@ function loadEnvKey(): { key?: string; provider?: string; model?: string; baseUr
     if (i < 0) continue;
     const k = t.slice(0, i).trim();
     const v = t.slice(i + 1).trim();
-    if (API_KEY_NAMES.includes(k)) {
-      out.key = v;
-    } else if (k === 'MINI_CODER_PROVIDER') out.provider = v;
+    const p = Object.keys(PROVIDER_KEY_NAMES).find((pk) => PROVIDER_KEY_NAMES[pk].includes(k));
+    if (p) out.keys[p] = v;
+    else if (GENERIC_KEY_NAMES.includes(k)) out.genericKey = v;
+    else if (k === 'MINI_CODER_PROVIDER') out.provider = v;
     else if (k === 'MINI_CODER_MODEL') out.model = v;
     else if (k === 'MINI_CODER_BASE_URL') out.baseUrl = v;
   }
   return out;
+}
+
+/**
+ * 取【与这个 provider 配套】的那把 key
+ *
+ * 刻意【不】回退到别的 provider 的 key：
+ *   拿错 key 只会得到一个没有信息量的 401，
+ *   而"没找到 key"是一句用户看得懂的话。
+ */
+function pickKey(env: EnvBundle, provider: string): string | undefined {
+  return env.keys[provider] || env.genericKey;
 }
 
 const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
@@ -180,13 +228,14 @@ async function main() {
     return;
   }
 
-  const env = loadEnvKey();
+  const env = loadEnv();
   const providerName = env.provider || 'deepseek';
   const defaults = PROVIDER_DEFAULTS[providerName] || PROVIDER_DEFAULTS.deepseek;
 
   const config: EvalConfig = {
     provider: providerName,
-    apiKey: env.key || '',
+    // ⭐ key 必须和 provider 配套（2026-10-29）
+    apiKey: pickKey(env, providerName) || '',
     baseUrl: env.baseUrl || defaults.baseUrl,
     model: env.model || defaults.model,
     maxIterations: 20,
@@ -222,10 +271,10 @@ async function main() {
 
   if (!args.dry && !config.apiKey) {
     console.error('❌ 找不到 API Key。');
+    console.error(`   当前 provider 是「${providerName}」，需要它对应的那把 key。`);
     console.error('   在项目根 .env 里加一行，例如：');
-    console.error('     MINIMAX_API_KEY=sk-xxx');
-    console.error('     MINI_CODER_PROVIDER=minimax');
-    console.error('     MINI_CODER_MODEL=MiniMax-M3');
+    console.error('     MINIMAX_API_KEY=sk-xxx   （provider=minimax 时）');
+    console.error('     DEEPSEEK_API_KEY=sk-xxx  （provider=deepseek 时）');
     console.error('   或者先跑 `npm run eval -- --dry` 验证框架（不花钱）。\n');
     process.exit(1);
   }

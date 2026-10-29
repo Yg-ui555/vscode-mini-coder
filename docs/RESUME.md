@@ -57,10 +57,10 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 
 | 数字 | 值 | 出处 | 怎么验 |
 |---|---|---|---|
-| 源码规模 | `src/` 非测试 **91 文件 / 19,091 行** | 实测 | `node scripts/stats.js` |
-| 测试规模 | **38 文件 / 8,541 行** | 实测 | `node scripts/stats.js` |
-| 前端规模 | `webview-ui/src/` **1,002 行** | 实测 | — |
-| 测试用例数 | **579**（改造前 474） | `npx vitest run` | 实测 |
+| 源码规模 | `src/` 非测试 **93 文件 / 20,156 行** | 实测 | `node scripts/stats.js` |
+| 测试规模 | **41 文件 / 9,140 行** | 实测 | `node scripts/stats.js` |
+| 前端规模 | `webview-ui/src/` **1,019 行** | 实测 | — |
+| 测试用例数 | **622**（改造前 474） | `npx vitest run` | 实测 |
 | 主循环行数 | **1075 → 211 行** | `git show HEAD:src/agent/loop.ts` 对比 | — |
 | Operation 数 | **11 个** | `src/agent/operations/` | — |
 | 工具数 | **11 个** | `src/agent/tools/factory.ts` | `/doctor` 命令自检 |
@@ -71,8 +71,8 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 | 输入/输出 token 比 | **96.8% / 3.2%**（输入 3,238,445 / 输出 105,745） | `eval/RESULTS.md` | — |
 | 消融实验 | 摘 grep：pass rate 不变，成本 **-25%**（¥1.57→¥1.18）；摘 grep+run_shell：仍 100% | `eval/ABLATION.md` | `npm run eval -- --ablate grep` |
 | CI 矩阵 | Linux + Windows 双平台 + 评测冒烟 + 打包守卫 | `.github/workflows/ci.yml` | — |
-| **VSIX 体积** | **0.40 MB / 102 个文件**（打包守卫阈值 2 MB） | `npm run vscode:package` | `vscode-mini-coder-0.4.1.vsix` |
-| **GitHub Release** | **v0.4.1 已发布**（附 VSIX 安装包），tag `v0.4.1` | https://github.com/Yg-ui555/vscode-mini-coder/releases | `gh release create v0.4.1` |
+| **VSIX 体积** | **0.41 MB / 103 个文件**（打包守卫阈值 2 MB） | `npm run vscode:package` | `vscode-mini-coder-0.5.0.vsix` |
+| **GitHub Release** | **v0.5.0 已发布**（附 VSIX 安装包），tag `v0.5.0` | https://github.com/Yg-ui555/vscode-mini-coder/releases | `gh release create v0.5.0` |
 
 ### ✅ 这张表已刷新到最新（2026-10-28）
 

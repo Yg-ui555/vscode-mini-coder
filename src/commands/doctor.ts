@@ -36,29 +36,42 @@ export async function runDoctor(
 ): Promise<string> {
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
 
+  // ⭐ 0. 先算清"真正会生效的那一套配置"
+  //    /doctor 显示的和实际发请求用的必须是同一个 —— 否则就成了"配置项骗用户"。
+  const eff = await configManager.getEffective();
+
   // 1. API Key
-  const key = await configManager.getApiKey();
   checks.push({
     name: 'API Key',
-    ok: !!key,
-    detail: key
-      ? `已设置（长度 ${key.length}${configManager.describeEffective().keyFromEnv ? '，来自 .env' : '，来自 SecretStorage'}）`
-      : '未设置',
+    ok: !!eff.key,
+    detail: eff.key
+      ? `已设置（长度 ${eff.key.length}，来自 ${
+          eff.keySource === 'env'
+            ? `.env → ${eff.envPath ?? '项目根'}`
+            : 'SecretStorage（加密存储）'
+        }）`
+      : eff.foreignSecret
+        ? `未设置 —— ⚠️ 加密存储里那把 key 属于 ${
+            eff.secretProvider ?? '别的 provider'
+          }，当前 provider 是 ${eff.provider}，没有拿来顶替\n           （拿外家 key 硬打只会换来一个没有信息量的 401）\n           💡 解决：命令面板 → "Mini-Coder: 设置 API Key" 换一把`
+        : '未设置',
   });
 
-  // 2. 实际生效的配置（.env > 设置界面 > SecretStorage 助手）
+  // 2. 实际生效的配置（设置界面 > .env > provider 默认）
   //    ⭐ 修复记录：之前这里只显示 globalState 里向导选的值，
   //      用户在设置界面改 mini-coder.provider 后 /doctor 显示的还是旧值，
   //      完全无法验证配置是否生效。现在显示真正会用的那一组。
-  const eff = configManager.describeEffective();
   const pConfig = PROVIDER_CONFIGS[eff.provider];
   checks.push({
     name: '生效配置',
     ok: !!pConfig,
     detail: pConfig
-      ? `${eff.provider} → 模型 ${eff.model}\n           地址 ${eff.baseUrl}`
+      ? `${eff.provider}（来自${providerSourceLabel(eff.providerSource)}） → 模型 ${eff.model}\n           地址 ${eff.baseUrl}`
       : `${eff.provider}（未知 provider，检查设置项）`,
   });
+
+  // 3. ⭐⭐⭐ API 连通性 —— 真打一次接口，别让用户猜
+  checks.push(await probeApi(eff));
 
   // 3. Webview 构建产物
   const htmlPath = path.join(context.extensionPath, 'dist-webview', 'index.html');
@@ -79,12 +92,13 @@ export async function runDoctor(
   });
 
   // 5. .env 文件（开发用）
-  const envPath = path.join(context.extensionPath, '.env');
-  const envExists = fs.existsSync(envPath);
+  const envPath = eff.envPath;
   checks.push({
     name: '.env 配置',
     ok: true, // .env 不是必须的
-    detail: envExists ? '存在（开发时优先于 SecretStorage）' : '不存在（生产模式用 SecretStorage）',
+    detail: envPath
+      ? `已读取：${envPath}`
+      : '未找到（用 SecretStorage 里的 key；也可以在工作区根目录放 .env）',
   });
 
   // 6. ⭐ 工具注册检查 —— 覆盖写文件时如果白名单没配好会在这里暴露
@@ -121,7 +135,7 @@ export async function runDoctor(
   if (!outBuilt) {
     fixHint += '\n\n💡 修复 Extension 编译：在项目根目录跑\n   npm run compile';
   }
-  if (!key) {
+  if (!eff.key) {
     fixHint += '\n\n💡 设置 API Key：点命令面板 → "Mini-Coder: 设置 API Key"';
   }
 
@@ -129,6 +143,114 @@ export async function runDoctor(
 
   info(`Doctor 报告：${failCount === 0 ? '一切正常' : `${failCount} 个问题`}`);
   return report;
+}
+
+/** provider 是从哪来的 —— 让用户知道"我改哪里才有用" */
+function providerSourceLabel(src: string): string {
+  if (src === 'settings') return '设置界面';
+  if (src === 'env') return '.env';
+  return '上次向导选择';
+}
+
+/**
+ * ⭐⭐⭐ API 连通性探测（2026-10-29 加）
+ *
+ *   为什么 /doctor 必须真打一次接口：
+ *     原来它只检查"key 有没有设置" —— 但 key 设了不代表能用。
+ *     现实里的失败长这样：
+ *       401 → key 填错 / 被撤销
+ *       402 → key 没问题，【账户没钱】
+ *       403 → key 没问题，套餐不覆盖这个模型
+ *       404 → key 没问题，模型名写错了
+ *       200 → 真的能用
+ *     而这四种在用户眼里长得一模一样："插件坏了"。
+ *
+ *     这次用户就在这上面卡了很久：扩展日志写的是"余额用完"，
+ *     界面 toast 却写"配额不足或无权限"，两边对不上，
+ *     最后是他自己拿 key 去打接口，才定位到是【账上没钱】。
+ *
+ *     所以 /doctor 要能一句话回答"到底哪一环坏了"。
+ *     代价：一次 max_tokens=1 的请求（几分钱以内）。
+ */
+export async function probeApi(eff: {
+  key?: string;
+  baseUrl: string;
+  model: string;
+  provider: string;
+}): Promise<{ name: string; ok: boolean; detail: string }> {  const NAME = 'API 连通性';
+
+  if (eff.provider === 'ollama') {
+    return { name: NAME, ok: true, detail: '本地模型（ollama），不需要 key' };
+  }
+  if (!eff.key) {
+    return { name: NAME, ok: false, detail: '没有 key，跳过探测' };
+  }
+
+  const url = `${eff.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${eff.key}`,
+      },
+      body: JSON.stringify({
+        model: eff.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        stream: false,
+      }),
+    });
+
+    if (resp.ok) {
+      return {
+        name: NAME,
+        ok: true,
+        detail: `key 有效、余额充足、模型 ${eff.model} 可用（HTTP ${resp.status}）`,
+      };
+    }
+
+    const text = await resp.text().catch(() => '');
+    const withRaw = (msg: string) => `${msg}\n           服务端原文：${text.slice(0, 160)}`;
+
+    if (resp.status === 401) {
+      return {
+        name: NAME,
+        ok: false,
+        detail: withRaw('key 无效或已被撤销（401）—— 重新设置一次 key'),
+      };
+    }
+    if (resp.status === 402) {
+      return {
+        name: NAME,
+        ok: false,
+        detail: withRaw(
+          '余额不足（402）—— key 是好的！去平台「账户钱包 → 充值」，' +
+            '或改用「套餐详情」里的订阅 Key（走套餐额度，不按量扣费）',
+        ),
+      };
+    }
+    if (resp.status === 403) {
+      return {
+        name: NAME,
+        ok: false,
+        detail: withRaw('无权限（403）—— key 是好的，但当前套餐不包含这个模型'),
+      };
+    }
+    if (resp.status === 404) {
+      return {
+        name: NAME,
+        ok: false,
+        detail: withRaw(`模型不存在（404）—— 检查模型名「${eff.model}」`),
+      };
+    }
+    if (resp.status === 429) {
+      return { name: NAME, ok: false, detail: withRaw('被限流（429）—— 等一会儿再试') };
+    }
+    return { name: NAME, ok: false, detail: withRaw(`HTTP ${resp.status}`) };
+  } catch (e: any) {
+    return { name: NAME, ok: false, detail: `网络错误：${e?.message || e}` };
+  }
 }
 
 /**

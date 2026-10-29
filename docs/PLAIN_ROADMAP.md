@@ -127,16 +127,16 @@ $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/actions/runs
 
 ```
 $ curl https://api.github.com/repos/Yg-ui555/vscode-mini-coder/releases
-[{"tag_name": "v0.4.1", "assets": [{"name": "vscode-mini-coder-0.4.1.vsix"}]}]
+[{"tag_name": "v0.5.0", "assets": [{"name": "vscode-mini-coder-0.5.0.vsix"}]}]
 ```
 
-已发布 **v0.4.1**，附 VSIX 安装包（404 KB / 102 个文件）。
+已发布 **v0.5.0**，附 VSIX 安装包（约 415 KB / 103 个文件）。
 
 **比喻**：你车修好了，也贴了贴纸，这次**真去车管所上牌了**。
 
 **面试现场**：
-> 面试官："你说你发布了 v0.4.1？"
-> 你：（点开链接，**404.5 KB 的安装包直接下载**）
+> 面试官："你说你发布了 v0.5.0？"
+> 你：（点开链接，**400+ KB 的安装包直接下载**）
 
 ---
 
@@ -237,6 +237,9 @@ const isAdvertised = (n: string): boolean => {
 - [x] 校正 README 里的数字（9→11 个工具、23→30 题）
 - [x] 发 GitHub Release v0.4.1
 - [x] 写 `AGENTS.md`
+- [x] **配置链路重写成单一真相源 + `/doctor` 真打接口**（v0.5.0，2026-10-29）
+  —— 起因是插件报「配额不足」而日志写「余额用完」，
+  两边对不上；顺手挖出 `.env` 读错目录、优先级写反、外家 key 顶替三个静默 bug
 
 ### 🚀 卡片 2：Phase 10 补入场券（W1~W3）
 

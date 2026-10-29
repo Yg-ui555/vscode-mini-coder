@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/Yg-ui555/vscode-mini-coder/actions/workflows/ci.yml)
 [![eval](https://img.shields.io/badge/eval-30%20%E9%A2%98%20%C2%B7%2093%25%20oracle-%E8%A6%8B%E8%AF%81-blue)](eval/RESULTS.md)
-[![VSIX](https://img.shields.io/badge/VSIX-0.40%20MB-brightgreen)](ARCHITECTURE.md)
+[![VSIX](https://img.shields.io/badge/VSIX-0.41%20MB-brightgreen)](ARCHITECTURE.md)
 
 ---
 
@@ -608,6 +608,65 @@ VS Code 插件最恶心的故障是「**webview 一片空白**」——
 
 ---
 
+## ⭐ 排障：API 调不通能自己查
+
+「插件报 API 用不了」和「key 坏了」是**两回事**。
+真实世界的失败长这样：
+
+| 状态码 | 真实含义 | 你该做什么 |
+|---|---|---|
+| `401` | key 填错 / 被撤销 | 重新复制一次 key |
+| `402` | **key 是好的，是账户没钱** | 充值，或换「套餐详情」里的订阅 Key |
+| `403` | key 是好的，套餐不包含这个模型 | 换订阅 Key，或改模型名 |
+| `404` | **模型名写错了** | 改 `mini-coder.model` |
+| `429` | 被限流 | 等一会儿再试 |
+
+这五种在用户眼里长得一模一样：**「插件坏了」**。
+所以本项目做了两件事：
+
+**① `/doctor` 会真打一次接口**（`max_tokens=1`，几分钱以内），
+而不是只检查「key 有没有设置」：
+
+```
+✅ API 连通性：key 有效、余额充足、模型 deepseek-chat 可用（HTTP 200）
+```
+
+**② 每次启动都把体检结果打进日志**（输出面板 → Mini-Coder）：
+
+```
+[INFO] 生效配置：provider=deepseek（来自设置界面） · model=deepseek-chat · baseUrl=https://api.deepseek.com/v1
+[INFO] API Key：已就绪（长度 35，来源 .env（d:\Projects\vscode-mini-coder\.env））
+[INFO] API 连通性：✅ key 有效、余额充足、模型 deepseek-chat 可用（HTTP 200）
+```
+
+> 这三行来自**真实运行日志**。第一行告诉你「我到底在用什么」，
+> 第二行告诉你「key 从哪来」，第三行告诉你「现在能不能用」。
+
+**③ 终端里也能验**（改完 `.env` 立刻能验，不依赖 VS Code）：
+
+```bash
+npm run check:api                              # 按 .env 里的 provider 自动选
+npm run check:api -- --provider minimax        # 指定 provider
+npm run check:api -- --provider minimax --model MiniMax-M3
+```
+
+**④ 配置只有一处真相源**：`getEffective()` 算出来的那一套，
+既是 `/doctor` 显示的，也是真正发请求用的 —— 不可能再对不上。
+
+| 配什么 | 优先级 |
+|---|---|
+| provider / model / baseUrl | **设置界面** > `.env` > provider 默认值 |
+| API Key | `.env` 里**与该 provider 匹配**的那把 > `.env` 通用 key > SecretStorage |
+
+> ⭐ **key 不会跨家顶替**：拿 MiniMax 的 key 去打 DeepSeek，服务端只会回一个
+> 没有信息量的 401，永远不会提示「你拿错家了」。所以本项目按 provider 配对，
+> 对不上就明确报「没配 key」，而不是让你猜。
+>
+> 同理，SecretStorage 里那把 key 会记住它属于哪家；
+> 你换了 provider 之后，它不会被拿去硬打。
+
+---
+
 ## 架构
 
 > 完整版（含数据流图、六个关键设计决策、协议约束速查、扩展指南）见 **[ARCHITECTURE.md](ARCHITECTURE.md)**。
@@ -667,9 +726,10 @@ src/
 npm install
 npm run compile
 npm run build:webview
-npm test                    # 579 个用例
+npm test                    # 622 个用例
 npm run check               # 架构守卫（工具注册表同步 / 文件行数上限 / 每题必有 oracle …）
 npm run check:package       # 打包守卫（VSIX 里不该有的东西）
+npm run check:api           # API 连通性自检（真打一次接口，给结论 + 下一步）
 npm run eval:verify         # 校验每题 baseline 设计合格
 npm run eval:solvable       # 校验每题不是废题（跑人写的标准答案）
 npm run eval -- --dry       # 验证评测链路（不花钱）

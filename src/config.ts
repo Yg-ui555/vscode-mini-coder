@@ -36,6 +36,22 @@ import * as path from 'path';
 
 const SECRET_API_KEY = 'miniCoderApiKey';
 const STATE_PROVIDER = 'miniCoderProvider';
+/**
+ * ⭐ SecretStorage 里那把 key 属于哪个 provider（2026-10-29 加）
+ *
+ *   为什么必须记：
+ *     SecretStorage 只有一个槽位，存的是"用户最后一次填进去的 key"。
+ *     用户填完 MiniMax 的 key、之后把 provider 切到 DeepSeek，
+ *     这把 MiniMax 的 key 就会自动被拿去打 DeepSeek —— 得到一个
+ *     信息量为零的 401（"authorized_error"），永远不会提示"你拿错家了"。
+ *
+ *   类比：钥匙串上只有一把钥匙，但钥匙上没有标签。
+ *         换了一把锁以后，你只能硬插 —— 插不进去，
+ *         锁也不会告诉你"这把是别的门的"。
+ *
+ *   所以保存 key 时顺手记下它属于哪家，换 provider 后就不拿它顶替。
+ */
+const STATE_KEY_PROVIDER = 'miniCoderKeyProvider';
 
 export type ProviderName = 'minimax' | 'deepseek' | 'openai' | 'ollama';
 
@@ -89,14 +105,77 @@ export const PROVIDER_CONFIGS: Record<ProviderName, ProviderConfig> = {
  */
 const VALID_PROVIDERS = Object.keys(PROVIDER_CONFIGS) as ProviderName[];
 
-/** .env 里可能出现的 key 名（任选其一） */
+/** .env / 环境变量里可能出现的 key 名（任选其一） */
 const API_KEY_NAMES = ['MINIMAX_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY'];
 
+/**
+ * ⭐ 每个 provider 该配哪把 key（2026-10-29 加）
+ *
+ *   为什么必须按 provider 归类：
+ *     .env 里同时放 MiniMax 和 DeepSeek 两把 key 时，如果"谁在后面谁赢"，
+ *     就会出现【拿 MiniMax 的 key 去打 DeepSeek】这种组合 —— 服务端只会回你一个
+ *     401 authorized_error，而错误信息完全不会告诉你"key 配错家了"。
+ *
+ *   类比：钥匙串上���把钥匙，MiniMax 的钥匙插进 DeepSeek 的锁，
+ *         锁只会说"钥匙不对"，不会说"你拿错那把了"。
+ */
+const PROVIDER_KEY_NAMES: Record<ProviderName, string[]> = {
+  minimax: ['MINIMAX_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  ollama: [], // 本地模型不需要 key
+};
+
+/** 不挑 provider 的通用 key（谁都能用，优先级低于上面那把） */
+const GENERIC_KEY_NAMES = ['LLM_API_KEY'];
+
 interface EnvConfig {
-  key?: string;
+  /** 按 provider 归类的 key */
+  keys?: Partial<Record<ProviderName, string>>;
+  /** 不挑 provider 的通用 key */
+  genericKey?: string;
   provider?: ProviderName;
   model?: string;
   baseUrl?: string;
+  /** 实际读到的 .env 路径（给 /doctor 展示用） */
+  path?: string;
+}
+
+/**
+ * ⭐ 一次算清所有生效配置（2026-10-29 加）
+ *
+ *   为什么要有这个"单一真相源"：
+ *     之前 provider / model / baseUrl / key 各算各的（loadFromEnv / loadFromSettings /
+ *     globalState 各管一段），/doctor 显示的那一套和真正发请求用的那一套
+ *     **可能不是同一个** —— 这就是典型的"配置项骗用户"：
+ *     状态栏写着 minimax，实际打的是 deepseek 的地址。
+ *
+ *   现在只有一个函数算配置，/doctor 展示它、请求也用它，不可能再对不上。
+ */
+export interface EffectiveConfig {
+  provider: ProviderName;
+  model: string;
+  baseUrl: string;
+  key?: string;
+  /** key 从哪来 —— /doctor 要告诉用户"该改哪里" */
+  keySource: 'env' | 'secret' | 'none';
+  /** provider 从哪来 */
+  providerSource: 'settings' | 'env' | 'state';
+  /** 读到的 .env 路径（如果有） */
+  envPath?: string;
+  /**
+   * SecretStorage 里那把 key 记录的 provider（没记录过 = 老版本存的，不确定）
+   *
+   * 有了它，/doctor 才能说清楚"你换 provider 了，key 还是上一家的"。
+   */
+  secretProvider?: ProviderName;
+  /**
+   * ⭐ SecretStorage 里有 key，但它属于别的 provider —— 所以【没有拿来用】
+   *
+   *   为 true 时：key 为 undefined，插件会引导用户重新设置一把。
+   *   这比"拿外家 key 硬打、换来一个没有信息量的 401"要好得多。
+   */
+  foreignSecret?: boolean;
 }
 
 export class ConfigManager {
@@ -124,61 +203,137 @@ export class ConfigManager {
    *
    *   .env 排在前面：它是开发者本地显式写的，应该赢过环境变量。
    */
+  /**
+   * ⭐ 找 .env 文件（2026-10-29 修）
+   *
+   *   ⚠️ 修复记录：原来读的是【扩展安装目录】里的 .env ——
+   *     那是 `code --install-extension` 装出来的目录，用户根本不会往那儿放 .env，
+   *     于是"在项目根 .env 里配 key"这个功能【等于没有】，
+   *     而 README 和 /doctor 都在教用户去项目根放 .env。
+   *     代码和文档说的不是一回事 —— 这正是本项目最恨的那类 bug。
+   *
+   *   现在按文档来：先找【工作区根目录】，找不到再退回扩展安装目录。
+   */
+  private findEnvFile(): string | undefined {
+    const candidates: string[] = [];
+
+    try {
+      const folders = vscode.workspace.workspaceFolders;
+      if (folders && folders.length) {
+        candidates.push(path.join(folders[0].uri.fsPath, '.env'));
+      }
+    } catch {
+      /* 没有 vscode 工作区（测试环境）就跳过 */
+    }
+    candidates.push(path.join(this.context.extensionPath, '.env'));
+
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch {
+        /* 忽略 */
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 读配置（.env 文件 > 进程环境变量）
+   *
+   * 用途：开发时不用每次 F5 都填 key
+   * 安全：.env 已在 .gitignore 里，不会被 commit
+   *
+   * 支持的键：
+   *   MINIMAX_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY / LLM_API_KEY
+   *   MINI_CODER_PROVIDER   （minimax / deepseek / openai / ollama）
+   *   MINI_CODER_MODEL
+   *   MINI_CODER_BASE_URL   ⭐ 之前声明了但没人读，导致无法切换 MiniMax 站点
+   *
+   * ⭐ 进程环境变量也认（2026-10-28）
+   *
+   *   CI 的 secret、`docker -e`、终端里 `export DEEPSEEK_API_KEY=...`，
+   *   走的都是环境变量。之前这里【只】读 .env 文件，于是：
+   *     · CI 里 secret 明明注进去了，评测却报"找不到 API Key"
+   *     · 在终端里 export 过的用户，打开插件照样被提示没配 key
+   *
+   *   .env 排在前面：它是开发者本地显式写的，应该赢过环境变量。
+   */
   private loadFromEnv(): EnvConfig {
     const result: EnvConfig = {};
 
-    // ── 第 1 优先：进程环境变量 ──
+    // ── 第 1 优先：.env 文件（工作区根优先）──
+    const envPath = this.findEnvFile();
+    if (envPath) {
+      result.path = envPath;
+      try {
+        const content = fs.readFileSync(envPath, 'utf-8');
+
+        for (const rawLine of content.split('\n')) {
+          const trimmed = rawLine.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx < 0) continue;
+
+          const key = trimmed.slice(0, eqIdx).trim();
+          // 去掉可能存在的引号（.env 常见写法：KEY="value" 或 KEY='value'）
+          let value = trimmed.slice(eqIdx + 1).trim();
+          if (
+            (value.startsWith('"') && value.endsWith('"') && value.length > 1) ||
+            (value.startsWith("'") && value.endsWith("'") && value.length > 1)
+          ) {
+            value = value.slice(1, -1);
+          }
+          if (!value) continue;
+
+          // ⭐ key 按 provider 归类 —— .env 里放两把 key 也不会串
+          const matched = (Object.keys(PROVIDER_KEY_NAMES) as ProviderName[]).find((p) =>
+            PROVIDER_KEY_NAMES[p].includes(key),
+          );
+          if (matched) {
+            result.keys = result.keys || {};
+            result.keys[matched] = value;
+          } else if (GENERIC_KEY_NAMES.includes(key)) {
+            result.genericKey = value;
+          } else if (key === 'MINI_CODER_PROVIDER') {
+            if (VALID_PROVIDERS.includes(value as ProviderName)) {
+              result.provider = value as ProviderName;
+            }
+          } else if (key === 'MINI_CODER_MODEL') {
+            result.model = value;
+          } else if (key === 'MINI_CODER_BASE_URL') {
+            result.baseUrl = value;
+          }
+        }
+      } catch {
+        /* 读不了就当没有这一份 */
+      }
+    }
+
+    // ── 第 2 优先：进程环境变量 ──
+    //   只补【.env 里没有的】项 —— .env 是开发者本地显式写的，应该赢。
     const envKeyName = API_KEY_NAMES.find((n) => process.env[n]);
-    if (envKeyName) result.key = process.env[envKeyName];
+    if (envKeyName) {
+      const matched = (Object.keys(PROVIDER_KEY_NAMES) as ProviderName[]).find((p) =>
+        PROVIDER_KEY_NAMES[p].includes(envKeyName),
+      );
+      if (matched) {
+        result.keys = result.keys || {};
+        if (!result.keys[matched]) result.keys[matched] = process.env[envKeyName];
+      } else if (!result.genericKey) {
+        result.genericKey = process.env[envKeyName];
+      }
+    }
     const envProvider = process.env.MINI_CODER_PROVIDER;
-    if (envProvider && VALID_PROVIDERS.includes(envProvider as ProviderName)) {
+    if (!result.provider && envProvider && VALID_PROVIDERS.includes(envProvider as ProviderName)) {
       result.provider = envProvider as ProviderName;
     }
-    if (process.env.MINI_CODER_MODEL) result.model = process.env.MINI_CODER_MODEL;
-    if (process.env.MINI_CODER_BASE_URL) result.baseUrl = process.env.MINI_CODER_BASE_URL;
-
-    // ── 第 2 优先：项目根 .env 文件 ──
-    const envPath = path.join(this.context.extensionPath, '.env');
-    if (!fs.existsSync(envPath)) return result;
-
-    try {
-      const content = fs.readFileSync(envPath, 'utf-8');
-
-      for (const rawLine of content.split('\n')) {
-        const trimmed = rawLine.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx < 0) continue;
-
-        const key = trimmed.slice(0, eqIdx).trim();
-        // 去掉可能存在的引号（.env 常见写法：KEY="value" 或 KEY='value'）
-        let value = trimmed.slice(eqIdx + 1).trim();
-        if (
-          (value.startsWith('"') && value.endsWith('"') && value.length > 1) ||
-          (value.startsWith("'") && value.endsWith("'") && value.length > 1)
-        ) {
-          value = value.slice(1, -1);
-        }
-        if (!value) continue;
-
-        if (API_KEY_NAMES.includes(key)) {
-          result.key = value;
-        } else if (key === 'MINI_CODER_PROVIDER') {
-          if (VALID_PROVIDERS.includes(value as ProviderName)) {
-            result.provider = value as ProviderName;
-          }
-        } else if (key === 'MINI_CODER_MODEL') {
-          result.model = value;
-        } else if (key === 'MINI_CODER_BASE_URL') {
-          result.baseUrl = value;
-        }
-      }
-
-      return result;
-    } catch {
-      return result;
+    if (!result.model && process.env.MINI_CODER_MODEL) result.model = process.env.MINI_CODER_MODEL;
+    if (!result.baseUrl && process.env.MINI_CODER_BASE_URL) {
+      result.baseUrl = process.env.MINI_CODER_BASE_URL;
     }
+
+    return result;
   }
 
   /**
@@ -220,6 +375,15 @@ export class ConfigManager {
     if (!key) return false;
 
     await this.context.secrets.store(SECRET_API_KEY, key);
+
+    // ⭐ 顺手记下"这把 key 属于哪家" —— 换 provider 后就不拿它顶替
+    try {
+      const provider = (await this.getEffective()).provider;
+      await this.context.globalState.update(STATE_KEY_PROVIDER, provider);
+    } catch {
+      /* 记不住也不影响主流程 */
+    }
+
     vscode.window.showInformationMessage('✓ API Key 已保存');
     return true;
   }
@@ -255,18 +419,102 @@ export class ConfigManager {
   }
 
   /**
+   * ⭐⭐⭐ 一次算清所有生效配置（2026-10-29）
+   *
+   *   为什么必须有这个"单一真相源"：
+   *     之前 provider / model / baseUrl / key 各算各的（loadFromEnv / loadFromSettings /
+   *     globalState 各管一段），/doctor 显示的那一套 和 真正发请求用的那一套
+   *     【可能不是同一个】—— 这就是典型的"配置项骗用户"：
+   *     状态栏写着 minimax，实际打的是 deepseek 的地址。
+   *
+   *     现在只有一个函数算配置，/doctor 展示它、请求也用它，不可能再对不上。
+   *
+   *   ⭐ 优先级规则（2026-10-29 调整过一次）：
+   *     provider / model / baseUrl ：设置界面 > .env > provider 默认值
+   *       —— 【设置界面排第一】的理由：用户在界面上看到的就是生效的。
+   *          .env 是给命令行评测（npm run eval）用的项目级配置，
+   *          拿它去盖掉用户在界面上的显式选择，就是"配置项骗用户"。
+   *     key                       ：.env 里【与该 provider 匹配】的那把
+   *                                > .env 里的通用 key > SecretStorage
+   *       —— key 必须和 provider 配套。拿 A 家的 key 打 B 家，
+   *          服务端只会回一个没有信息量的 401 authorized_error，
+   *          永远不会告诉你"你拿错那把钥匙了"。
+   */
+  async getEffective(): Promise<EffectiveConfig> {
+    const env = this.loadFromEnv();
+    const settings = this.loadFromSettings();
+
+    // ── provider ──
+    let provider: ProviderName = 'deepseek';
+    let providerSource: EffectiveConfig['providerSource'] = 'state';
+    if (settings.provider) {
+      provider = settings.provider;
+      providerSource = 'settings';
+    } else if (env.provider) {
+      provider = env.provider;
+      providerSource = 'env';
+    } else {
+      const saved = this.context.globalState.get<ProviderName>(STATE_PROVIDER);
+      if (saved) {
+        provider = saved;
+        providerSource = 'state';
+      }
+    }
+
+    const base: ProviderConfig = PROVIDER_CONFIGS[provider] ?? PROVIDER_CONFIGS.deepseek;
+
+    // ── model / baseUrl ──
+    //   这一层之前完全缺失，导致 .env 里写 MINI_CODER_BASE_URL 不起作用
+    const model = settings.model || env.model || base.defaultModel;
+    const baseUrl = settings.baseUrl || env.baseUrl || base.baseUrl;
+
+    // ── key（按 provider 配对）──
+    let key = env.keys?.[provider];
+    let keySource: EffectiveConfig['keySource'] = key ? 'env' : 'none';
+    if (!key && env.genericKey) {
+      key = env.genericKey;
+      keySource = 'env';
+    }
+
+    // ── SecretStorage 回落（要检查归属）──
+    //   SecretStorage 只有一个槽位，key 没写"属于哪家"。
+    //   换 provider 后拿上一家的 key 硬打，只会得到一个没有信息量的 401。
+    let secretProvider: ProviderName | undefined;
+    let foreignSecret = false;
+    if (!key) {
+      const secret = await this.getApiKey();
+      if (secret) {
+        secretProvider = this.context.globalState.get<ProviderName>(STATE_KEY_PROVIDER);
+        if (!secretProvider || secretProvider === provider) {
+          // 没记录过归属（老版本存的）→ 照旧用；记录过且一致 → 用
+          key = secret;
+          keySource = 'secret';
+        } else {
+          // ⭐ 记录过、但属于别的 provider → 不顶替
+          foreignSecret = true;
+        }
+      }
+    }
+
+    return {
+      provider,
+      model,
+      baseUrl,
+      key,
+      keySource,
+      providerSource,
+      envPath: env.path,
+      secretProvider,
+      foreignSecret,
+    };
+  }
+
+  /**
    * 取当前生效的 Provider
-   * 优先级：.env > VS Code 设置 > 向导选过的 globalState > 'deepseek'
+   * （provider 的解析规则见 getEffective 的注释）
    */
   async getProvider(): Promise<ProviderName> {
-    const env = this.loadFromEnv();
-    if (env.provider) return env.provider;
-
-    const settings = this.loadFromSettings();
-    if (settings.provider) return settings.provider;
-
-    const saved = this.context.globalState.get<ProviderName>(STATE_PROVIDER);
-    return saved || 'deepseek';
+    return (await this.getEffective()).provider;
   }
 
   /**
@@ -274,24 +522,12 @@ export class ConfigManager {
    * 返回 {key, config} 或 undefined
    */
   async ensureConfigured(): Promise<{ key: string; config: ProviderConfig } | undefined> {
-    const env = this.loadFromEnv();
-    const settings = this.loadFromSettings();
+    const eff = await this.getEffective();
+    const config: ProviderConfig = { baseUrl: eff.baseUrl, defaultModel: eff.model };
 
-    const provider = env.provider ?? settings.provider ?? (await this.getProvider());
+    let key = eff.key;
 
-    // 模型名：.env > 设置 > provider 默认
-    const base: ProviderConfig = PROVIDER_CONFIGS[provider] ?? PROVIDER_CONFIGS.deepseek;
-    const model = env.model ?? settings.model ?? base.defaultModel;
-
-    // baseUrl：.env > 设置 > provider 默认
-    // 这一层之前完全缺失，导致 .env 里写 MINI_CODER_BASE_URL 不起作用
-    const baseUrl = env.baseUrl ?? settings.baseUrl ?? base.baseUrl;
-
-    const config: ProviderConfig = { baseUrl, defaultModel: model };
-
-    let key = env.key || (await this.getApiKey());
-
-    if (!key && provider !== 'ollama') {
+    if (!key && eff.provider !== 'ollama') {
       const action = await vscode.window.showInformationMessage(
         '请先设置 LLM API Key',
         '立即设置',
@@ -309,33 +545,5 @@ export class ConfigManager {
     }
 
     return { key, config };
-  }
-
-  /**
-   * 返回当前实际生效的配置（/doctor 用）
-   * 让用户能一眼看到"我现在到底用的哪个 provider / 哪个模型 / 哪个地址"
-   */
-  describeEffective(): {
-    provider: ProviderName;
-    model: string;
-    baseUrl: string;
-    keyFromEnv: boolean;
-  } {
-    const env = this.loadFromEnv();
-    const settings = this.loadFromSettings();
-
-    const provider =
-      env.provider ??
-      settings.provider ??
-      this.context.globalState.get<ProviderName>(STATE_PROVIDER) ??
-      'deepseek';
-    const base: ProviderConfig = PROVIDER_CONFIGS[provider] ?? PROVIDER_CONFIGS.deepseek;
-
-    return {
-      provider,
-      model: env.model ?? settings.model ?? base.defaultModel,
-      baseUrl: env.baseUrl ?? settings.baseUrl ?? base.baseUrl,
-      keyFromEnv: !!env.key,
-    };
   }
 }
