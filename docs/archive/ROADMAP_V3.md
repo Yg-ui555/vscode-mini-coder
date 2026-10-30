@@ -975,7 +975,7 @@ ROADMAP_V2:1164 自己提过：
 
 ### 6.1 简历条目（每条都有数字和链接，链接全部可点开验证）
 
-> **AI 编程助手（VS Code 插件，TypeScript）** ｜ 个人项目 ｜ [GitHub](链接) ｜ [Marketplace](链接) ｜ [评测报告](链接)
+> **AI 编程助手（VS Code 插件，TypeScript）** ｜ 个人项目 ｜ GitHub ｜ Marketplace ｜ 评测报告
 >
 > - **Agent 运行时**：ReAct 循环管线化（11 个 Operation 单一职责），11 个工具按
 >   "只读并行 / 写串行"分批执行；实现上下文双可见性（压缩不删历史，仅打
