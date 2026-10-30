@@ -52,7 +52,6 @@ out/**/*.ts
 webview-ui/**
 eval/**
 scripts/**
-test_demo.py
 tsconfig.json
 vitest.config.mts
 **/*.ts
@@ -72,11 +71,8 @@ vitest.config.mts
 docs/**
 coverage/**
 ROADMAP.md
-ROADMAP_V2.md
-ROADMAP_V3.md
 PROJECT.md
 RUN.md
-VISION.html
 vsce-files.txt
 *.vsix
 

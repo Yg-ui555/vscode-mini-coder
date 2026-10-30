@@ -3,7 +3,7 @@
 > 生成时间：2026-10-26
 > 输入：对 `vscode-mini-coder`（TS，VS Code 插件）、`goose-main`（Rust，Block）、`nanobot-main`（Python，HKUDS）的完整代码阅读
 > 目标：把项目从"功能完整的插件"升级为"**可被验证、可被发布、可被看见**"的 agent 工程作品
-> 前置：`ROADMAP.md`（Phase 1/2 已完成，本文件不重复它）
+> 前置：`ROADMAP_V1.md`（Phase 1/2 已完成，本文件不重复它）
 
 ---
 

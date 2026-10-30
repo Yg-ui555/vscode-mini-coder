@@ -779,7 +779,7 @@ npm run vscode:package      # 产出 VSIX
 按 `F5` 打开 Extension Development Host。详见 [RUN.md](RUN.md)。
 
 更多设计意图与踩坑记录：[PROJECT.md](PROJECT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) ·
-[ROADMAP_V2.md](ROADMAP_V2.md)
+[ROADMAP.md](ROADMAP.md)
 
 ---
 

@@ -3,7 +3,7 @@
 > 生成时间：2026-10-27
 > 输入：对 `vscode-mini-coder`（TS，VS Code 插件，v0.4.0）的**全代码实测复核**，
 > 以及 `goose-main`（Rust，Block）、`nanobot-main`（Python，HKUDS）的完整代码阅读
-> 前置：`ROADMAP.md`（Phase 1/2）、`ROADMAP_V2.md`（Phase 3~8，**已全部完成**）
+> 前置：`ROADMAP_V1.md`（Phase 1/2）、`ROADMAP_V2.md`（Phase 3~8，**已全部完成**）
 > 本文件只回答一个问题：**接下来 6 周做什么。**
 
 ---

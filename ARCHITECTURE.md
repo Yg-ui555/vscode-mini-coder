@@ -522,7 +522,7 @@ expect(r.status).toBe('applied');
 | `README.md` | 项目定位、三个设计决策、能力清单、评测结果 |
 | `eval/RESULTS.md` | 最近一次全量评测报告 |
 | `eval/ABLATION.md` | 消融实验 —— 这套题到底在测什么 |
-| `ROADMAP_V2.md` | 8 周路线图（本项目这一轮改造的依据） |
+| `ROADMAP.md` | 当前路线图（Phase 12~17：确定性 / 上下文层级 / 信任颗粒度）；历史版本在 `docs/archive/` |
 | `docs/RESUME.md` | 简历素材包（每条都挂真实数字） |
 | `docs/INTERVIEW.md` | 面试问答 12 题 |
 | `CHANGELOG.md` | Keep a Changelog 格式 |

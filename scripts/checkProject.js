@@ -226,7 +226,7 @@ function checkFileSize() {
       err(
         CHECK,
         `${path.relative(ROOT, f).replace(/\\/g, '/')} 有 ${lines} 行，超过上限 ${MAX_FILE_LINES}。` +
-          `→ 说明有职责没拆出去。参考 ROADMAP_V2.md「Phase 4：主循环管线化」的做法。`,
+          `→ 说明有职责没拆出去。参考 docs/archive/ROADMAP_V2.md「Phase 4：主循环管线化」的做法。`,
       );
     }
   }
