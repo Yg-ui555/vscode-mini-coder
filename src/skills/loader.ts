@@ -348,25 +348,6 @@ export function buildExplicitSkillsBlock(names: string[], entries: SkillEntry[])
   );
 }
 
-/** 给 /doctor 用的摘要 */
-export function describeSkills(workspace?: string | null): string {
-  const entries = listSkills(workspace);
-  if (entries.length === 0) {
-    return `未发现技能（扫描目录：${workspace ? path.join(workspace, SKILLS_DIR) : `${SKILLS_DIR}/`}）`;
-  }
-
-  const lines = entries.map((e) => {
-    const flags: string[] = [];
-    if (e.always) flags.push('always');
-    if (!e.available) flags.push(`不可用：${e.unavailableReason}`);
-    const suffix = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
-    return `  • ${e.name}${suffix}\n    ${e.description}\n    ${e.relPath}`;
-  });
-
-  const usable = entries.filter((e) => e.available).length;
-  return `${SKILLS_DIR}/ 下共 ${entries.length} 个技能（${usable} 个可用）:\n${lines.join('\n')}`;
-}
-
 /** 记录一次发现结果到日志（激活时调一次，方便排障） */
 export function logSkillsSummary(workspace?: string | null): void {
   const entries = listSkills(workspace);

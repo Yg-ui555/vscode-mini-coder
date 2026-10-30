@@ -26,11 +26,11 @@ TypeScript，**零运行时依赖**（只用 Node 内置模块 + `fetch`）。
 
 | 规模 | 实测值（2026-10-29） |
 |---|---|
-| 源码 | `src/` 非测试 **93 个文件 / 20,156 行** |
-| 测试 | **41 个文件 / 9,140 行 / 622 个用例** |
+| 源码 | `src/` 非测试 **91 个文件 / 20,086 行** |
+| 测试 | **42 个文件 / 9,340 行 / 638 个用例** |
 | 工具 | **11 个**（4 只读 + 3 状态 + 3 写 + 1 执行） |
 | Agent 管线 | **9 个 Operation**（`src/agent/operations/`，共 11 个文件） |
-| MCP | **stdio 客户端**（`src/agent/mcp/`，7 文件 / 1,363 行） |
+| MCP | **stdio 客户端**（`src/agent/mcp/`，6 文件 / 1,317 行） |
 | 评测集 | **30 题**（5 简单 / 16 困难 / 9 对抗）+ 30 份标准答案 |
 | 前端 | `webview-ui/src/` **10 个文件 / 2,379 行** |
 
@@ -107,7 +107,7 @@ A 题的待办漏进 B 题，评测结果就废了，而且**极难排查**。
 
 ---
 
-### Rule 5：改了 agent 行为，必须重跑 `npm run eval` 并提交 `eval/results.json`
+### Rule 5：改了 agent 行为，必须重跑 `npm run eval` 并提交 `eval/RESULTS.md`
 
 **为什么**：这个项目卖的是"**可验证**"。
 没有评测数据 = 没有证据 = 简历上那句话没人信。
@@ -119,7 +119,7 @@ git add eval/RESULTS.md
 ```
 
 > ⚠️ **只提交 `eval/RESULTS.md`，不要提交 `eval/results.json`** ——
-> 后者在 `.gitignore` 里（它每次跑都会变，280KB 的原始数据进版本库没有意义）。
+> 后者在 `.gitignore` 里（它每次跑都会变，当前这份约 88 KB 的原始数据进版本库没有意义）。
 > `RESULTS.md` 是整理过的对外基线数字，才是该被跟踪的那个。
 
 ---
@@ -150,7 +150,7 @@ git add eval/RESULTS.md
 | Operation 名单 | `src/agent/operations/index.ts` 的 `ALL_OPERATION_NAMES` |
 | 只读工具名单 | `src/agent/tools/meta.ts` 的 `ReadOnlyToolNames` |
 | 迭代上限 | `src/agent/limits.ts` 的 `MAX_ITERATIONS` |
-| Provider 配置 | `src/agent/provider.ts` 的 `PROVIDER_CONFIGS` |
+| Provider 配置 | `src/config.ts` 的 `PROVIDER_CONFIGS` |
 | 上下文窗口 | `src/util/tokens.ts` 的 `MODEL_CONTEXT_WINDOWS` |
 
 **怎么验证**：`npm run check` 的 `[no-drift]` 检查项（迭代上限单一真相源）。
@@ -176,7 +176,7 @@ features/*.ts                  agent/tools/ (11 个)          agent/tools/repeat
 > **为什么运行时层不许碰 vscode**：这是 Rule 1 的目的。
 > 它让同一份 `AgentLoop` 能同时跑在 VS Code / 评测沙箱 / 单元测试里。
 
-**主循环长这样**（`src/agent/loop.ts`，改造后只有 9 行）：
+**主循环长这样**（`src/agent/loop.ts`，改造后只有 211 行）：
 ```typescript
 while (true) {
   for (const op of this.pipeline) {
@@ -244,7 +244,7 @@ abort → max_iterations → user_prompt_submit → steer_inject → todo_inject
 
 ### 加一个 Provider（1 步）
 
-改 `src/agent/provider.ts` 的 `PROVIDER_CONFIGS` 一张表，加一行。
+改 `src/config.ts` 的 `PROVIDER_CONFIGS` 一张表，加一行。
 **加 provider 不用改任何其他文件。**
 
 ---
@@ -270,13 +270,13 @@ abort → max_iterations → user_prompt_submit → steer_inject → todo_inject
 ## 🛠 常用命令
 
 ```powershell
-npm test                 # 622 个用例（约 90s）
-npm run check            # 架构守卫（13 项）—— 提交前必跑
+npm test                 # 638 个用例（约 90s）
+npm run check            # 架构守卫（14 项）—— 提交前必跑
 npm run compile          # tsc
 npm run eval             # 全量 30 题评测（约 ¥7.3）
 npm run eval:dry         # 只验证评测框架链路，不花钱
 npm run eval:solvable    # 验证每道题的标准答案都能跑通（证明题不是废题）
-npm run eval:repeat 3    # 同一批题跑 3 次，看方差
+npm run eval:repeat      # 同一批题跑 3 次，看方差（--repeat 3 已内置在脚本里）
 npm run eval:ablate grep # 消融：摘掉 grep 工具看结果变差多少
 npm run audit            # 对真实项目做改造分析
 npm run vscode:package   # 打 VSIX

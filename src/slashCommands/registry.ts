@@ -1,7 +1,9 @@
 /**
  * Slash Commands 注册中心
  *
- * 借鉴来源：D:/AI agent/goose-main/crates/goose/src/slash_commands/
+ * 借鉴来源：goose（Rust 实现）的 crates/goose/src/slash_commands/
+ *   ⚠️ 这里只写【项目名 + 相对路径】，不写任何本机绝对路径 ——
+ *      写死了别人 clone 下来就看不懂，评审时也像"这代码只在你机器上能跑"。
  *   - slash_command.rs: SlashCommandEntry trait
  *   - recipe_slash_command.rs: recipe workflow 命令
  *   - skill_slash_command.rs: 用户自定义 skill 命令

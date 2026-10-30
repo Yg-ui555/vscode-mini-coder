@@ -40,12 +40,14 @@ const PROVIDER_KEY_NAMES = {
 };
 const GENERIC_KEY_NAMES = ['LLM_API_KEY'];
 
-const PROVIDER_DEFAULTS = {
-  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
-  deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder:7b' },
-};
+/**
+ * provider 默认配置 —— 来自 src/providers.json（唯一真相源）
+ *
+ *   以前这里硬抄了一份，和插件运行时用的那份各写各的 ——
+ *   改一处忘一处 → 自检脚本验 MiniMax、插件打 DeepSeek，且没有任何报错。
+ *   现在只保留 JSON 一份。
+ */
+const PROVIDER_DEFAULTS = require('../src/providers.json');
 
 /** 读项目根 .env（和插件、评测 CLI 同一个文件） */
 function readEnvFile() {
@@ -160,7 +162,7 @@ async function main() {
 
   const provider = args.provider || fileEnv.MINI_CODER_PROVIDER || 'deepseek';
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.deepseek;
-  const model = args.model || fileEnv.MINI_CODER_MODEL || defaults.model;
+  const model = args.model || fileEnv.MINI_CODER_MODEL || defaults.defaultModel;
   const baseUrl = args.baseUrl || fileEnv.MINI_CODER_BASE_URL || defaults.baseUrl;
 
   // ⭐ key 必须和 provider 配套 —— 不拿别的 provider 的 key 顶替

@@ -13,7 +13,7 @@
  * - ToolResult 是字符串 + is_error 标志，让 LLM 能"看到错误"自我纠错
  */
 
-import { ToolMeta, readOnlyMeta } from './meta';
+import { ToolMeta } from './meta';
 
 export interface ToolResult {
   content: string;
@@ -31,11 +31,6 @@ export interface Tool {
    */
   readonly meta?: ToolMeta;
   execute(args: any): Promise<ToolResult>;
-}
-
-/** 取工具元数据，未声明时按只读处理 */
-export function getToolMeta(tool: Tool): ToolMeta {
-  return tool.meta ?? readOnlyMeta();
 }
 
 /** 把 Tool 转成 OpenAI 兼容 schema（任何 OpenAI 协议 LLM 都能用） */

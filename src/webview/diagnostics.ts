@@ -167,7 +167,17 @@ export function buildProbeScript(nonce: string): string {
     try {
       var payload = JSON.stringify({ type: 'diag_report', payload: { events: events } });
       window.parent.postMessage(payload, '*');
-    } catch (e) {}
+    } catch (e) {
+      // ⚠️ 不能空 catch（2026-10-30 修）：
+      //   这条广播是"React 没挂载时【唯一】的证据通路"。
+      //   它要是静默失败了，扩展侧一条线索都收不到 ——
+      //   而"证据通路本身坏了"恰恰是最该被记录下来的那种故障：
+      //   否则下次白屏时，日志里只有"什么都没收到"，依然查不出原因。
+      //   所以把失败原因记进 events，下一次广播会把它带出去。
+      push('broadcast_error', {
+        message: (e && (e.message || e.name)) || String(e),
+      });
+    }
   }
   window[G].broadcast = broadcast;
   setTimeout(broadcast, 1200);

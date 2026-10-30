@@ -5,8 +5,8 @@
 > 2. **下一个接手的人** —— 你要加一个新工具 / 一个新 Operation / 一个新 provider，照着第 6 节做就行。
 >
 > **数据都是实测的**，不是估计值。统计口径：
-> `src/` 下非测试 `.ts` 文件 **93 个 / 20,156 行**；
-> `src/__tests__/` 下测试 **41 个文件 / 9,140 行**；
+> `src/` 下非测试 `.ts` 文件 **91 个 / 20,086 行**；
+> `src/__tests__/` 下测试 **42 个文件 / 9,340 行**；
 > `webview-ui/src/` **2,379 行**（10 个文件，含 styles.css 1,068 行）。
 >
 > 口径说明：行数按 `ReadAllText -split "\n"` 统计（物理行，含空行）。
@@ -187,40 +187,40 @@ messages 里有一大坨历史
 
 | 模块 | 职责 | 关键文件 | 规模 |
 |---|---|---|---|
-| **agent/** | Agent 运行时（纯逻辑） | 见下方 15 行 | 10,252 行 |
+| **agent/** | Agent 运行时（纯逻辑） | 见下方 14 行 | 10,159 行 |
 | ├ loop.ts | 主循环 | `loop.ts` | 211 行 |
 | ├ provider.ts | OpenAI 兼容协议客户端 + fallback | `provider.ts` `providerFallback.ts` | 659 行 |
-| ├ context.ts | system prompt 拼装（按工具可用性裁剪） | `context.ts` | 309 行 |
+| ├ context.ts | system prompt 拼装（按工具可用性裁剪） | `context.ts` | 311 行 |
 | ├ toolOutputStore.ts | 大输出外置存储 | `toolOutputStore.ts` | 360 行 |
-| ├ store.ts | agent 运行时状态 | `store.ts` | 367 行 |
+| ├ checkpoint/ | 改动快照（可回滚 / 中断续跑） | `store.ts` | 363 行 |
 | ├ trust.ts | 不可信数据边界（提示注入防护） | `trust.ts` | 155 行 |
 | ├ visibility.ts | 双可见性（模型视图 / 用户视图） | `visibility.ts` | 62 行 |
 | ├ steering.ts | 插话（steering）注入 | `steering.ts` | 68 行 |
-| ├ limits.ts | 运行时限额 | `limits.ts` | 69 行 |
+| ├ limits.ts | 运行时限额 | `limits.ts` | 60 行 |
 | ├ operations/ | 主循环拆成的 **9 个 Operation**（+ types.ts / index.ts 共 11 个文件） | `types.ts` `index.ts` | 1,505 行 |
-| ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | 4,009 行 |
-| ├ mcp/ | MCP stdio 客户端（JSON-RPC 协议 / 子进程 / 管理器 / schema 归一化） | `stdioClient.ts` `protocol.ts` | 1,363 行 |
-| ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` `runner.ts` | 971 行 |
+| ├ tools/ | 11 个工具 + 注册表 + 审批 + 重复检测 | `registry.ts` `factory.ts` | 4,018 行 |
+| ├ mcp/ | MCP stdio 客户端（JSON-RPC 协议 / 子进程 / 管理器 / schema 归一化） | `stdioClient.ts` `protocol.ts` | 1,317 行 |
+| ├ hooks/ | 4 个生命周期 hook 的执行器 | `manager.ts` `runner.ts` | 926 行 |
 | ├ todo/ | 待办清单状态（内存 + session 持久化） | `store.ts` | 144 行 |
-| **webview/** | 扩展 ↔ Webview 的消息编解码 + 面板自检诊断 | `panel.ts` `html.ts` `diagnostics.ts` | 1,156 行 |
+| **webview/** | 扩展 ↔ Webview 的消息编解码 + 面板自检诊断 | `panel.ts` `html.ts` `diagnostics.ts` | 1,171 行 |
 | **webview-ui/** | React 前端（操作时间线 / 待办 / 插话 / 状态条） | `components/`：`ChatPanel` `OperationList` `StatusStrip` `EmptyState` `Message` `TodoList` `icons` | 2,379 行 |
 | **session/** | 会话持久化 + 中断续跑 | `store.ts` `resume.ts` | 687 行 |
 | **observability/** | OTel 风格 span 记录器 | `spans.ts` | 183 行 |
 | **commands/** | 命令面板命令 | `doctor.ts` `traces.ts` `sessions.ts` `permissions.ts` | 853 行 |
-| **slashCommands/** | 聊天框内 `/xxx` 命令（11 个） | `registry.ts` | 343 行 |
-| **features/** | 特色功能（自动测 / 中文 commit / 错题本） | `autoTest.ts` `zhCommit.ts` `notes.ts` | 947 行 |
-| **skills/** | 技能包加载（渐进式：索引 / 正文两档） | `loader.ts` `index.ts` `types.ts` | 772 行 |
+| **slashCommands/** | 聊天框内 `/xxx` 命令（11 个） | `registry.ts` | 345 行 |
+| **features/** | 特色功能（自动测 / 中文 commit / 错题本） | `autoTest.ts` `zhCommit.ts` `notes.ts` | 938 行 |
+| **skills/** | 技能包加载（渐进式：索引 / 正文两档） | `loader.ts` `index.ts` `types.ts` | 753 行 |
 | **util/** | token 估算 / diff / 协议修复 / 大输出外置 | `historyRepair.ts` `tokens.ts` | 1,333 行 |
-| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,365 行 |
+| **eval/** | 自研评测框架 | `runner.ts` `statistics.ts` `cli.ts` | 2,371 行 |
 | **types/** | 跨模块环境声明 | `ambient.d.ts` | 22 行 |
-| **（根级）** | 扩展入口 / 配置 / 日志 / 重试 / 错误类型 | `extension.ts` `config.ts` `logger.ts` `retry.ts` `errors.ts` | 1,243 行 |
+| **（根级）** | 扩展入口 / 配置 / 日志 / 重试 / 错误类型 | `extension.ts` `config.ts` `logger.ts` `retry.ts` `errors.ts` | 1,272 行 |
 
 > **「规模」列的口径**（写下来是为了能被复核，别改了就没人知道怎么算的）：
 > 行数 = `文件内容.split('\n').length`（物理行数，**含空行**，与 `scripts/stats.js` 完全一致）。
 > 每一行都是**该目录下所有 `.ts` 文件的行数之和**，`src/__tests__/` 不计入任何一行；
-> 15 个 `agent/` 子行相加 = 10,252 行，与 `agent/` 那行相等。
-> 全部相加 = **20,156 行 / 93 个 `.ts` 文件**，与 `node scripts/stats.js` 的 `src/` 合计一致。
-> （`webview-ui/` 那行不在 `src/` 里，是前端独立目录，别把它加到 20,156 上去。）
+> 14 个 `agent/` 子行相加 = 10,159 行，与 `agent/` 那行相等。
+> 全部相加 = **20,086 行 / 91 个 `.ts` 文件**，与 `node scripts/stats.js` 的 `src/` 合计一致。
+> （`webview-ui/` 那行不在 `src/` 里，是前端独立目录，别把它加到 20,086 上去。）
 
 ### 工具清单（11 个）
 
@@ -492,7 +492,7 @@ expect(r.status).toBe('applied');
 
 ### 6.3 加一个新 Provider
 
-**1 步**：改 `src/agent/provider.ts` 里的 `PROVIDER_CONFIGS` 一张表。
+**1 步**：改 `src/config.ts` 里的 `PROVIDER_CONFIGS` 一张表。
 
 每个 provider 一行：baseUrl、模型名、上下文窗口、是否支持流式、是否支持 tools。
 加 provider 不用改任何其他文件。
@@ -506,7 +506,7 @@ expect(r.status).toBe('applied');
 
 | 手段 | 位置 | 作用 |
 |---|---|---|
-| 单元测试 | `src/__tests__/`（38 文件 / 8,541 行） | 行为回归 |
+| 单元测试 | `src/__tests__/`（42 文件 / 9,340 行） | 行为回归 |
 | 架构守卫 | `scripts/checkProject.js` | provider 枚举同步、工具名同步、单文件行数上限（800）、每题必须有 oracle、源码无疑似密钥、迭代上限单一真相源 |
 | 打包守卫 | `scripts/checkPackage.js` | VSIX 里不许出现 `eval/` `src/` `webview-ui/` 等 |
 | CI | `.github/workflows/ci.yml` | Linux + Windows 矩阵跑测试；评测冒烟（2 题，约 ¥0.11）；打包产物校验；每天凌晨全量评测 |

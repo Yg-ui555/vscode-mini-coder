@@ -27,9 +27,12 @@
 | 5 | 于是走"替换更新"流程 → 抛 `InvalidStateError` | v5 占着 `vscode-webview` origin 的 scope，v6 要顶掉它 |
 | 6 | 每次启动 VS Code 都要**干等 30 秒** | 启动日志：`checkInnoSetupMutex: vscode-updating is held, waiting up to 30s for setup to finish...` |
 | 7 | 等待期间 webview 文档**不处于 active 状态** → 注册必然失败 | 上一步的 `InvalidStateError: The document is in an invalid state` 就是这个意思 |
-| 8 | 谁占着这个锁？`inno_updater.exe` | 进程命令行：`D:\新建文件夹\Microsoft VS Code\e646868227\tools\inno_updater.exe "D:\新建文件夹\Microsoft VS Code\Code.exe" true "正在更新 Visual Studio Code..."` |
-| 9 | 它等的是一个**根本不存在**的文件 | `D:\新建文件夹\Microsoft VS Code\` 里只有 `new_Code.exe`，**没有 `Code.exe`** → 永远等不到 → 永远不退出 → 锁永远不释放 |
-| 10 | 为什么会有两个 VS Code | 真正在跑的 1.142.0 在 `D:\VS code\Microsoft VS Code\`；注册表的 InstallLocation 却指向 `D:\新建文件夹\Microsoft VS Code\`（半死的 1.143.1 残留） |
+| 8 | 谁占着这个锁？`inno_updater.exe` | 进程命令行：`<VS Code 安装目录 A>\e646868227\tools\inno_updater.exe "<VS Code 安装目录 A>\Code.exe" true "正在更新 Visual Studio Code..."` |
+| 9 | 它等的是一个**根本不存在**的文件 | `<VS Code 安装目录 A>` 里只有 `new_Code.exe`，**没有 `Code.exe`** → 永远等不到 → 永远不退出 → 锁永远不释放 |
+| 10 | 为什么会有两个 VS Code | 真正在跑的 1.142.0 在 `<VS Code 安装目录 B>`；注册表的 InstallLocation 却指向 `<VS Code 安装目录 A>`（半死的 1.143.1 残留） |
+
+> 📌 下面用两个占位符代替本机真实安装路径（公开仓库里写死盘符既没法用、也暴露目录结构）：
+> **A** = 注册表指向的那个目录（半死残留）；**B** = 真正在跑的那个目录。
 
 **因果链一句话**：注册表指向错误目录 → 自动更新把新版解到那个目录 → Inno 助手等一个不存在的 `Code.exe` → 死等 → 占着 `vscode-updating` 互斥锁 → 每次启动白等 30 秒 → webview 文档不 active → SW 注册失败 → **面板全白**。
 
@@ -79,14 +82,14 @@
 | 2 | 清空 SW 数据库 | 用 `cmd /c move` **重命名**而不是删除（删除被安全策略拦；重命名同样清空效果且可恢复） |
 | 3 | 杀掉 `CodeSetup-*.exe` / `CodeSetup-*.tmp` | 更新器持锁，必须先杀再动文件 |
 | 4 | 杀掉 `inno_updater.exe` | 它是真正占锁的那个（PID 42016），杀掉后目录立刻可移动 |
-| 5 | 把 `D:\新建文件夹\Microsoft VS Code` 移走 | 注册表指向的目录里没有 `Code.exe`，是个半死残留；移走后自动更新装不上东西，也就不会再占锁 |
+| 5 | 把 `<VS Code 安装目录 A>` 移走 | 注册表指向的目录里没有 `Code.exe`，是个半死残留；移走后自动更新装不上东西，也就不会再占锁 |
 | 6 | 移走 `%LOCALAPPDATA%\Temp\vscode-stable-user-x64` | 已暂存的更新包，移走后不会重启安装流程 |
 | 7 | `settings.json` 加 `"update.mode": "none"` | **从根上断掉自动更新**（这一条才是根治，前几条只是清了现场） |
 | 8 | 重启 VS Code | SW 以 `?v=6` 重新注册成功 |
 
 > 备份位置：`%APPDATA%\Code\Service Worker.bak-20261028`、
 > `Service Worker.old-20261028`、`Code Cache.old-20261028`、`GPUCache.old-20261028`、
-> `D:\新建文件夹\Microsoft VS Code.dead-20261028`。
+> `<VS Code 安装目录 A>.dead-20261028`。
 
 ---
 

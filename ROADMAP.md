@@ -3,7 +3,7 @@
 > **生成日期**：2026-10-29（2026-10-30 由原 ROADMAP_V4.md 合并而来，文件名统一为 ROADMAP.md）
 > **取代范围**：ROADMAP_V3 的 Phase 10.2 ~ Phase 11（V3 里那部分保留为参考资料，但执行顺序被本文档重排）
 > **历史版本**：V1 / V2 / V3 已归档在 `docs/archive/`，那边的相互引用仍然有效
-> **依据**：2026-10-29 对本仓库、`D:\AI agent\goose-main`、`D:\AI agent\nanobot-main` 的现场实测与源码通读
+> **依据**：2026-10-29 对本仓库、以及本地参考仓库 goose-main（Rust 工业级 AI coding agent）与 nanobot-main（Python 版 Claude Code 复刻）的现场实测与源码通读
 > **读者假设**：你知道 TypeScript、知道 VS Code 扩展怎么写；**不需要**你知道 agent 工程圈的术语（本文档出现每个术语都会打比方解释）
 
 ---
@@ -64,19 +64,19 @@ V3 的 Phase 10.2~11 的**内容我基本都认同**，但顺序要改，有三�
 
 | 项 | 实测值 | 怎么复现 |
 |---|---|---|
-| 源码（非测试） | **93 文件 / 20,156 行** | `node scripts/stats.js` |
-| 测试 | **41 文件 / 9,140 行** | `node scripts/stats.js` |
-| **用例数** | **622 个，全绿**（41 文件 / 95.65s） | `npm test` |
-| 架构守卫 | **13 项全过** | `npm run check` |
-| 工具 / Operation | **11 / 11** | `src/agent/tools/factory.ts`、`src/agent/operations/index.ts` |
-| MCP 源文件 | 7 个（含 `stdioClient.ts` / `schemaNormalize.ts`） | `src/agent/mcp/` |
+| 源码（非测试） | **91 文件 / 20,086 行** | `node scripts/stats.js` |
+| 测试 | **42 文件 / 9,340 行** | `node scripts/stats.js` |
+| **用例数** | **638 个，全绿**（42 文件） | `npm test` |
+| 架构守卫 | **14 项全过** | `npm run check` |
+| 工具 / Operation | **11 / 9** | `src/agent/tools/factory.ts`、`src/agent/operations/index.ts` |
+| MCP 源文件 | 6 个（含 `stdioClient.ts` / `schemaNormalize.ts`） | `src/agent/mcp/` |
 | 评测集 | **30 题 + 30 oracle** | `eval/tasks/`、`eval/oracles/` |
 | 最近全量评测 | **pass rate 93%（28/30）**，case 修好率 98%（119/122），回归 2 | `eval/RESULTS.md`（2026-10-27） |
 | 单题均摊成本 | **¥0.2441**（总 ¥7.32 / 30 题 / 908.9s） | 同上 |
 | 输入:输出 token | **96.8% : 3.2%**（3,238,445 : 105,745） | 同上 |
-| CI job | **5 个**（test 矩阵 / guard / eval-smoke / package） | `.github/workflows/ci.yml` |
+| CI job | **4 个**（test 矩阵 / guard / eval-smoke / package） | `.github/workflows/ci.yml` |
 | Release | **v0.5.0 已发布**（远端 tag 在，本地没 fetch） | `gh release list` |
-| 未推送提交 | **0** | `git log origin/master..HEAD` |
+| 未推送提交 | **1**（本地 `master` 领先 `origin/master` 1 个提交） | `git log origin/master..HEAD` |
 | `docs/` 里的成品 | RESUME / INTERVIEW(12问) / GLOSSARY / PLAIN_ROADMAP / 排障复盘 | `ls docs/` |
 | **没有的东西** | `recipes/`、子目录 hints、作用域审批存储、`docs/DOGFOODING.md`、**任何 GIF/演示视频** | 全仓扫描确认 |
 
@@ -160,8 +160,8 @@ export class OpenAIProvider implements LLMProvider {
 **验收标准**：
 - [ ] `LLMProvider` 接口存在，`OpenAIProvider implements LLMProvider`
 - [ ] `src/agent/**` 里**没有任何一处** `new OpenAIProvider`（除了 provider.ts 自己）
-- [ ] `npm test` 622 个用例**一个不改**全绿（纯类型重构，行为必须不变）
-- [ ] `npm run check` 13 项全过
+- [ ] `npm test` 638 个用例**一个不改**全绿（纯类型重构，行为必须不变）
+- [ ] `npm run check` 14 项全过
 - [ ] 新增一条守卫 `[provider-seam]`：`src/agent/**` 和 `src/eval/**` 里出现 `new OpenAIProvider` 就报错（防止以后有人绕过接口直接 new）
 
 > ⚠️ **这一步的风险**：极低，但**必须**做到"纯类型重构、行为零变化"。
@@ -324,7 +324,7 @@ class RecordingProvider implements LLMProvider {
 
 ### 1.4 Phase 12 的整体验收
 
-- [ ] `npm test` ≥ 630 用例全绿（原 622 + 新增 ≥8）
+- [ ] `npm test` ≥ 630 用例全绿（原 638 + 新增 ≥8）
 - [ ] `npm run check` ≥ 14 项全过（新增 `[provider-seam]`）
 - [ ] `npm run eval:replay` 30 题跑完，零网络
 - [ ] CI 6 个 job 全绿
@@ -780,7 +780,7 @@ goose 的做法（`crates/goose/src/agents/gen_ai_telemetry.rs:52-108`）：
 ```
 
 **② 再做一次，换成 TypeScript 项目**
-- 目标：`D:\AI agent\nanobot-main` 的某个模块（Python 的话也可以，但换个 TS 更有说服力——
+- 目标：参考仓库 nanobot-main 的某个模块（Python 的话也可以，但换个 TS 更有说服力——
   **能改自己的语言才说明不是只会 Python**）
 - 任务要**有明确验收标准**，比如：
   > "给 `nanobot/agent/tools/` 补全 JSDoc，**不改任何行为**，
@@ -912,7 +912,7 @@ docs/DEEP_DIVE.md（新）            ← 面试官/技术面试读这一层（�
 | 区块 | 内容 | 目的 |
 |---|---|---|
 | 1 | **一句话定位** + 一张 GIF/动图 | 3 秒看懂 |
-| 2 | **60 秒证据表**（30 题评测 / 622 用例 / 5→6 个 CI job / 已发布 Release） | 让数字替你说话 |
+| 2 | **60 秒证据表**（30 题评测 / 638 用例 / 4→5 个 CI job / 已发布 Release） | 让数字替你说话 |
 | 3 | **三个设计决策**（为什么不做 LLM-as-judge / 为什么信任边界打在出口 / 为什么拒绝率要量出来） | 展示判断力 |
 | 4 | **对比表**（vs goose / vs nanobot） | 定位 |
 | 5 | **快速开始**（3 行命令 + 截图） | 可用性 |
@@ -1051,7 +1051,7 @@ Mini-Coder —— 带确定性回归的自评测 AI 编程助手（VS Code 插�
   可撤销、保留人类可读原文；信任边界统一打在管线出口，工具输出默认按不可信数据处理
 • 安全：提示注入红队套件 12 用例【阻断率 100%】；写入前 checkpoint 快照 + 审批 diff 预览 +
   一键回滚，构成"事前知情 - 事中留痕 - 事后可撤"闭环
-• 工程化：622+ 用例、13 项架构守卫、6 个 CI job（Linux/Windows 双平台矩阵 + 评测回放 + 评测冒烟 +
+• 工程化：638+ 用例、13 项架构守卫、6 个 CI job（Linux/Windows 双平台矩阵 + 评测回放 + 评测冒烟 +
   架构守卫 + 打包守卫）；已发布 v0.5.0 并上架 VS Code Marketplace
 ```
 

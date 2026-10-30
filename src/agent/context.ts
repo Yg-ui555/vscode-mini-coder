@@ -10,7 +10,9 @@
  * 1. identity（身份）  2. workflow（工作流）  3. conventions（约定）
  * 4. project bootstrap（项目规则）  ← 新增，借鉴自 nanobot
  *
- * 借鉴来源：D:/AI agent/nanobot-main/nanobot/agent/context.py
+ * 借鉴来源：nanobot（Python 实现）的 nanobot/agent/context.py
+ *   ⚠️ 这里只写【项目名 + 相对路径】，不写任何本机绝对路径 ——
+ *      写死了别人 clone 下来就看不懂，评审时也像"这代码只在你机器上能跑"。
  *   - BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
  *   - _load_bootstrap_files() 自动加载项目级 .md 文件，拼进 system prompt
  *   - 用户在工作区放 AGENTS.md 写项目规则，agent 自动遵守

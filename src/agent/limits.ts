@@ -46,15 +46,6 @@
  */
 export const MAX_ITERATIONS = 30;
 
-/**
- * 达到上限时的强制收尾轮数
- *
- * 触顶后会再发一次【不带工具】的请求，让 LLM 把已完成的工作
- * 总结给用户（见 loop.ts 的 _finalizeWithoutTools）。
- * 这一轮不计入 MAX_ITERATIONS —— 它是"交代后事"，不是"继续干活"。
- */
-export const FINALIZE_CALLS = 1;
-
 /** 给 LLM 看的限制说明（单一真相源，避免手写漂移） */
 export function describeLimits(): string {
   return [

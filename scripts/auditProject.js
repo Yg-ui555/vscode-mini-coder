@@ -42,12 +42,14 @@ const { setNotesRoot } = require('../out/util/notesStore');
 const { estimateCost, emptyUsage, addUsage } = require('../out/util/cost');
 const { walkFiles, IGNORED_DIRS } = require('../out/agent/tools/fileScan');
 
-const PROVIDER_DEFAULTS = {
-  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
-  deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder:7b' },
-};
+/**
+ * provider 默认配置 —— 来自 src/providers.json（唯一真相源）
+ *
+ *   以前这里硬抄了一份，和插件运行时用的那份各写各的 ——
+ *   改一处忘一处 → 体检脚本打 MiniMax、插件打 DeepSeek，且没有任何报错。
+ *   现在只保留 JSON 一份。
+ */
+const PROVIDER_DEFAULTS = require('../src/providers.json');
 
 /* ────────────── 参数 ────────────── */
 
@@ -276,7 +278,7 @@ async function main() {
   const defaults = PROVIDER_DEFAULTS[providerName] || PROVIDER_DEFAULTS.deepseek;
   const apiKey = env.key || '';
   const baseUrl = env.baseUrl || defaults.baseUrl;
-  const model = env.model || defaults.model;
+  const model = env.model || defaults.defaultModel;
   if (!apiKey) {
     console.error('❌ 找不到 API Key。请在项目根 .env 里配 DEEPSEEK_API_KEY 或 MINIMAX_API_KEY。');
     process.exit(1);

@@ -47,7 +47,7 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 • Agent 岗硬能力：多步任务状态管理（Todo 存 session + 每轮重建注入，压缩不丢）、
   子智能体上下文隔离（只读工具集物理约束 + 中间过程不进父上下文）、用户中途插话、
   OpenTelemetry 风格运行时调用链追踪（prompt 内容默认不入 trace）
-• 工程化：622 个单元测试 + GitHub Actions（Linux/Windows 双平台矩阵 + 评测冒烟 + 13 项架构守卫 +
+• 工程化：638 个单元测试 + GitHub Actions（Linux/Windows 双平台矩阵 + 评测冒烟 + 14 项架构守卫 +
   打包体积守卫）；自研守卫脚本校验工具注册表同步、单文件行数上限、每题必有 oracle、源码无疑似密钥
 • 界面层：把对话从「聊天气泡」重做成「事件时间线」—— 一条贯穿竖线串起全过程，
   每次工具调用默认折叠成一行（点开才看参数与结果），顶栏统一承载状态/进度/上下文用量；
@@ -69,13 +69,13 @@ Mini-Coder —— 带回归检测的自评测 AI 编程助手（VS Code 插件�
 
 | 数字 | 值 | 出处 | 怎么验 |
 |---|---|---|---|
-| 源码规模 | `src/` 非测试 **93 文件 / 20,156 行** | 实测 | `node scripts/stats.js` |
-| 测试规模 | **41 文件 / 9,140 行** | 实测 | `node scripts/stats.js` |
+| 源码规模 | `src/` 非测试 **91 文件 / 20,086 行** | 实测 | `node scripts/stats.js` |
+| 测试规模 | **42 文件 / 9,340 行** | 实测 | `node scripts/stats.js` |
 | 前端规模 | `webview-ui/src/` **2,379 行**（10 个文件） | 实测 | `node scripts/stats.js` |
 | **界面层规模** | **1,019 → 2,379 行**（视觉层整体重做：事件时间线 + 折叠工具卡 + 状态条 + 空状态） | `webview-ui/src/` | `node scripts/stats.js` |
-| **架构守卫** | **13 项** | `npm run check` | — |
+| **架构守卫** | **14 项** | `npm run check` | — |
 | **CI job** | **4 个**（test = Linux/Windows 双平台矩阵、guard + stats、eval-smoke 2 题、打包体积守卫） | `.github/workflows/ci.yml` | — |
-| 测试用例数 | **622**（改造前 474） | `npx vitest run` | 实测 |
+| 测试用例数 | **638**（改造前 474） | `npx vitest run` | 实测 |
 | 主循环行数 | **1075 → 211 行** | `git show HEAD:src/agent/loop.ts` 对比 | — |
 | Operation 数 | **9 个**（目录里 11 个文件 = 9 个 Operation + `types.ts` + `index.ts`） | `src/agent/operations/index.ts` 的 `ALL_OPERATION_NAMES` | — |
 | 工具数 | **11 个** | `src/agent/tools/factory.ts` | `/doctor` 命令自检 |
@@ -162,7 +162,7 @@ npm run eval          # ≈ 15 分钟 / ≈ ¥7.3
 
 ### 故事 2：Stop hook 从来没跑起来过（协议细节 + 排查能力）
 
-**S**：给 agent 加了 hook 机制，四个生命周期点，用户可以在 `hooks.json` 里配自定义脚本。
+**S**：给 agent 加了 hook 机制，四个生命周期点，用户可以在 `.vscode/mini-coder-hooks.json` 里配自定义脚本。
 其中 Stop hook 的定位是"测试没过不许收工"。
 
 **T**：用户反馈说 Stop hook 配了没反应。
@@ -263,8 +263,8 @@ grep -rn "readConfig\|loadConfig\|printConfig\|bootstrap\|processTask" src/ test
 
 | 问法 | 你要能立刻说出的出处 |
 |---|---|
-| "20,156 行是怎么数的？" | `node scripts/stats.js`（仓库里的**数字权威源**）：`src/` 下非测试 `.ts`，行数 = 文件内容 `split('\n').length`（物理行数，**含空行**）。⚠️ 别用 PowerShell 的 `Measure-Object -Line` —— 它不计空行，会低估约 17% |
-| "622 个测试都是有效的吗？" | `npx vitest run` 跑出来的**用例数**，不是文件数。文件数是 41。而且断言必须可自动判定，每道评测题另配一份人写的标准答案做交叉校验 |
+| "20,086 行是怎么数的？" | `node scripts/stats.js`（仓库里的**数字权威源**）：`src/` 下非测试 `.ts`，行数 = 文件内容 `split('\n').length`（物理行数，**含空行**）。⚠️ 别用 PowerShell 的 `Measure-Object -Line` —— 它不计空行，会低估约 17% |
+| "638 个测试都是有效的吗？" | `npx vitest run` 跑出来的**用例数**，不是文件数。文件数是 42。而且断言必须可自动判定，每道评测题另配一份人写的标准答案做交叉校验 |
 | "pass rate 100% 是不是题太简单？" | 是。这正是我加规模型题和做消融的原因。（主动承认，别辩解） |
 | "30 题跑一次多少钱？" | **¥7.32（30 题全量实测）/ 单题 ¥0.244**。CI 冒烟只跑 2 题，约 ¥0.11 |
 | "成本降了 25% 是真的省了还是题变简单了？" | 单次运行结论，噪声能到 3%，**必须 `--repeat 3` 复跑确认**。我在 ABLATION.md 里如实标注了这一点 |
@@ -280,7 +280,7 @@ grep -rn "readConfig\|loadConfig\|printConfig\|bootstrap\|processTask" src/ test
 
 | 问题 | 建议答法 |
 |---|---|
-| "接入 MCP 了吗？" | 没有。评估过，判断是重复建设（VS Code 用户已有 Copilot 的 MCP 生态），而且它会引入"外部工具的输出是几级不可信"这个问题。**我的信任边界目前只处理"本地工作区的文件内容"这一档。** |
+| "接入 MCP 了吗？" | 接了，**stdio 一条传输**（6 个源文件 / 36 个单元测试）。外部 MCP 服务器的工具以 `mcp__<服务器>__<工具>` 的命名空间并入工具清单；权限按服务器自带的 `annotations.readOnlyHint` 判定，没声明就一律按"写"处理（每次调用都要用户点头）。信任边界是**分级的**：`mcp__` 前缀的工具一律当"外部程序"处理，不会因为名字长得像内置只读工具就被自动放行；而且一个服务器启动失败只跳过它，不影响其他工具。 |
 | "沙箱隔离呢？" | 插件跑在用户自己的机器、用户自己的 shell 里，信任边界跟服务器端 agent 完全不同。我的做法是**写前审批 + checkpoint + diff 预览 + 一键回滚**，不是隔离。 |
 | "完整 provider 矩阵？" | 4 个主流。加 provider 只改 `PROVIDER_CONFIGS` 一张表 —— 这是刻意的设计取舍，不是遗漏。 |
 | "支持多 agent 协作吗？" | 只有一层：`delegate` 派子智能体（独立上下文 + 只读工具集）。没有做多 agent 协商，因为**没有真实场景证明需要**。 |

@@ -31,9 +31,8 @@ import {
   readTodayNote,
   listNoteDays,
   getNotesDir,
-  NoteEntry,
 } from '../util/notesStore';
-import { info, warn } from '../logger';
+import { info } from '../logger';
 
 let watcher: vscode.FileSystemWatcher | undefined;
 
@@ -125,12 +124,4 @@ export async function readTodayNotes(): Promise<string> {
   const root = workspaceRoot();
   if (!root) return '';
   return readTodayNote(root);
-}
-
-/** 写一条 agent 富条目（record_note 工具用，见 agent/tools/recordNote.ts） */
-export async function writeAgentNote(root: string, entry: NoteEntry): Promise<string | null> {
-  const written = await appendNoteEntry(root, entry);
-  if (!written) warn('错题本写入失败');
-  else info(`[错题本] ${written}`);
-  return written;
 }

@@ -37,6 +37,20 @@ import { initLogger, info, error as logError, getAllLogs, clearLogs } from './lo
 
 let configManager: ConfigManager;
 
+/**
+ * ⭐ 启动后自动打开面板的定时器句柄（2026-10-30 加）
+ *
+ *   为什么必须留着它：
+ *     之前这里直接 `setTimeout(...)` 就把句柄扔了。
+ *     扩展在 4 秒内被卸载（用户关窗口 / 重载 / 开发时反复 F5）的话，
+ *     这个回调【照样会跑】—— 扩展都 deactivate 了，它还在
+ *     executeCommand('mini-coder.openChat')，
+ *     弹出一个没人要的空面板，还可能往已失效的 VS Code API 上发消息。
+ *
+ *   留句柄 + deactivate 里 clearTimeout = 卸载后不再有回调。
+ */
+let autoOpenTimer: ReturnType<typeof setTimeout> | undefined;
+
 export async function activate(context: vscode.ExtensionContext) {
   // 初始化日志通道（用户在"输出"面板 → "Mini-Coder" 可看）
   const logChannel = vscode.window.createOutputChannel('Mini-Coder');
@@ -239,7 +253,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.getConfiguration('mini-coder').get<boolean>('openOnStartup') === true ||
     process.env.MINI_CODER_AUTOPEN === '1';
   if (openOnStartup) {
-    setTimeout(() => {
+    autoOpenTimer = setTimeout(() => {
+      autoOpenTimer = undefined;
       info('[autopen] 启动后自动打开 Chat 面板');
       void vscode.commands.executeCommand('mini-coder.openChat');
     }, 4000);
@@ -297,6 +312,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   info('Mini-Coder 停用');
+  // ⭐ 清掉"启动后自动打开面板"的定时器（2026-10-30 加）
+  //   不清的话，扩展在 4 秒内被卸载，这个回调照样会跑 ——
+  //   扩展已经 deactivate 了，它还在弹面板 / 往失效的 API 发消息。
+  if (autoOpenTimer) {
+    clearTimeout(autoOpenTimer);
+    autoOpenTimer = undefined;
+  }
   // 清掉本次会话的写操作授权记录，避免下次启动还残留
   resetApprovals();
   ChatPanel.currentPanel?.dispose();

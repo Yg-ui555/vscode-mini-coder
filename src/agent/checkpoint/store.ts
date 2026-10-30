@@ -101,10 +101,6 @@ export function setCheckpointEnabled(enabled: boolean): void {
   checkpointEnabled = enabled;
 }
 
-export function isCheckpointEnabled(): boolean {
-  return checkpointEnabled;
-}
-
 /** 设置当前会话（由 extension 激活或新建会话时调用） */
 export function setCheckpointSession(key: string): void {
   currentSessionKey = key;

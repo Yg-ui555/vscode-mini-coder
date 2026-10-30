@@ -16,6 +16,7 @@ import * as path from 'path';
 
 import { loadAllTasks, TaskMeta, evalRoot } from './types';
 import { runTask, EvalConfig, TaskResult } from './runner';
+import providerDefaults from '../providers.json';
 import { summarize, writeReports, ReportVariant } from './report';
 import {
   summarizeRuns,
@@ -187,14 +188,19 @@ function pickKey(env: EnvBundle, provider: string): string | undefined {
   return env.keys[provider] || env.genericKey;
 }
 
-const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
-  // ⚠️ MiniMax 国内站是 minimaxi.com（末尾多一个 i），国际站是 minimax.io，
-  //    两边 key 不通用。国内 key 打到国际站会 401。
-  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
-  deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder:7b' },
-};
+/**
+ * provider 默认配置 —— 来自 src/providers.json（唯一真相源）
+ *
+ *   以前这张表在这里又抄了一份，和插件运行时用的那份各写各的 ——
+ *   改一处忘一处 → 插件打 MiniMax、评测打 DeepSeek，且没有任何报错。
+ *   现在只保留 JSON 一份，这里做一次字段改名（defaultModel → model）就完事。
+ */
+const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = Object.fromEntries(
+  Object.entries(providerDefaults).map(([name, cfg]) => [
+    name,
+    { baseUrl: cfg.baseUrl, model: cfg.defaultModel },
+  ]),
+);
 
 /** dry 模式的假 provider：返回一句文本，不调 API */
 async function* dryProviderStream(): AsyncGenerator<any> {

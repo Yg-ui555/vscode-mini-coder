@@ -95,7 +95,7 @@
 
 - **Stop hook** —— agent 说"我做完了"的时候，先跑一遍项目测试，
   没通过就把它**打回去继续干**。内置实现叫"测试没过不许收工"。
-- 用户可以自己写 `hooks.json` 定制（4 个生命周期点：
+- 用户可以自己写 `.vscode/mini-coder-hooks.json` 定制（4 个生命周期点：
   `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop`）。
 - **连续阻断计数**：Stop hook 连续拒绝 8 次后强制放行 ——
   防止"测试永远修不过 → 无限循环"。

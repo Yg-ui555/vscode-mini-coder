@@ -112,10 +112,20 @@ function statTestCases(runVitest) {
     const raw = fs.readFileSync(path.join(ROOT, '.tmp', 'vitest-stats.json'), 'utf-8');
     const j = JSON.parse(raw);
     return {
+      // ⚠️ vitest 的 JSON reporter 里这两个字段【含义完全不同】，别搞混：
+      //   numTotalTests       = 用例数（it/test 的条数）—— 这才是"用例数"
+      //   numTotalTestSuites  = describe 块的数量（suite ≠ 文件）
+      //
+      //   2026-10-30 修：之前这里写的是 `files: j.numTotalTestSuites`，
+      //   把 181 个 describe 块当成了"测试文件数"——
+      //   名字误导 + 语义也错（真正的测试文件数是 testResults.length = 41）。
       total: j.numTotalTests,
       passed: j.numPassedTests,
       failed: j.numFailedTests,
-      files: j.numTotalTestSuites,
+      /** describe 块数量（不是文件数！） */
+      suites: j.numTotalTestSuites,
+      /** 真正的测试文件数 */
+      files: Array.isArray(j.testResults) ? j.testResults.length : null,
     };
   } catch (e) {
     return null;
@@ -182,6 +192,37 @@ function statEval() {
   return { tasks: tasks.length, oracles: oracles.length };
 }
 
+/** Operation 数量（src/agent/operations/index.ts 的 ALL_OPERATION_NAMES） */
+function statOperations() {
+  const p = path.join(ROOT, 'src', 'agent', 'operations', 'index.ts');
+  if (!fs.existsSync(p)) return null;
+  const src = fs.readFileSync(p, 'utf-8');
+  const m = src.match(/export const ALL_OPERATION_NAMES\s*=\s*\[([\s\S]*?)\];/);
+  if (!m) return null;
+  return [...m[1].matchAll(/'([^']+)'/g)].length;
+}
+
+/** slash command 数量（src/slashCommands/registry.ts 的 COMMANDS 数组） */
+function statSlashCommands() {
+  const p = path.join(ROOT, 'src', 'slashCommands', 'registry.ts');
+  if (!fs.existsSync(p)) return null;
+  const src = fs.readFileSync(p, 'utf-8');
+  const start = src.indexOf('const COMMANDS');
+  if (start < 0) return null;
+  // 数组自己的结尾是行首的 "];"，handler 里的嵌套不会写到行首
+  const end = src.indexOf('\n];', start);
+  if (end < 0) return null;
+  const block = src.slice(start, end);
+  return [...block.matchAll(/^\s{4}name:\s*'([^']+)'/gm)].length;
+}
+
+/** MCP 客户端源文件（src/agent/mcp/） */
+function statMcp() {
+  const dir = path.join(ROOT, 'src', 'agent', 'mcp');
+  const files = listFiles(dir).filter((f) => f.endsWith('.ts'));
+  return { files: files.length, lines: totalLines(files) };
+}
+
 /** 从 eval/RESULTS.md 里解析最新一次全量评测的 pass rate */
 function statEvalResult() {
   const p = path.join(ROOT, 'eval', 'RESULTS.md');
@@ -235,6 +276,9 @@ function collect(runVitest) {
     testCases: statTestCases(runVitest),
     webview: statWebview(),
     tools: statTools(),
+    operations: statOperations(),
+    slashCommands: statSlashCommands(),
+    mcp: statMcp(),
     eval: statEval(),
     evalResult: statEvalResult(),
     vsix: statVsix(),
@@ -261,6 +305,9 @@ function printHuman(s) {
   L.push(
     `  用例数        ${s.testCases ? `${s.testCases.total}（通过 ${s.testCases.passed}）` : '未统计（加 --test 参数可算，但要跑一遍 vitest）'}`,
   );
+  if (s.testCases) {
+    L.push(`  describe 块   ${s.testCases.suites}（⚠️ 这是 suite 数，不是文件数）`);
+  }
 
   L.push('');
   L.push('【前端】webview-ui/src/');
@@ -271,6 +318,9 @@ function printHuman(s) {
   L.push('【工具】');
   L.push(`  注册工具类    ${s.tools.registered}`);
   L.push(`  ALL_TOOL_NAMES ${s.tools.named}（其中只读 ${s.tools.readOnly}）`);
+  L.push(`  Operation 数  ${s.operations}`);
+  L.push(`  slash 命令数  ${s.slashCommands}`);
+  L.push(`  MCP 源文件    ${s.mcp.files}（${s.mcp.lines} 行）`);
 
   L.push('');
   L.push('【评测】');

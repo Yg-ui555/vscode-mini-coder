@@ -33,6 +33,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import providerDefaults from './providers.json';
 
 const SECRET_API_KEY = 'miniCoderApiKey';
 const STATE_PROVIDER = 'miniCoderProvider';
@@ -53,42 +54,47 @@ const STATE_PROVIDER = 'miniCoderProvider';
  */
 const STATE_KEY_PROVIDER = 'miniCoderKeyProvider';
 
-export type ProviderName = 'minimax' | 'deepseek' | 'openai' | 'ollama';
-
 export interface ProviderConfig {
   baseUrl: string;
   defaultModel: string;
 }
 
 /**
- * ⚠️ MiniMax 国内/国际是两个完全独立的平台，key 不通用：
+ * ⭐ provider 默认配置的【唯一真相源】= src/providers.json
+ *
+ *   为什么不是这个文件里写死：
+ *     以前这张表在【四个地方】各写一份 ——
+ *       · src/config.ts（本文件，插件运行时用）
+ *       · src/eval/cli.ts（评测 CLI 用）
+ *       · scripts/auditProject.js（项目体检脚本用）
+ *       · scripts/checkApiKey.js（API 连通性自检用）
+ *     改一处忘三处 → 插件用 MiniMax、评测打 DeepSeek，
+ *     而且【没有任何报错】—— 这就是典型的"配置项骗用户"。
+ *
+ *   现在只有 src/providers.json 一份，四处都从它读：
+ *     · TS 侧用 import（resolveJsonModule 已开）
+ *     · JS 侧用 require()
+ *
+ *   ⚠️ MiniMax 国内/国际是两个完全独立的平台，key 不通用：
  *   - 国际站（platform.minimax.io）  → https://api.minimax.io/v1
  *   - 国内站（platform.minimaxi.com） → https://api.minimaxi.com/v1   ← 注意末尾多一个 i
  *
  *   国内账号的 key 打到国际站会返回 401 invalid api key (2049)。
  *   如果你的 key 是在国内站申请的，这里必须用 minimaxi.com。
  *   （也可以在 .env 或 VS Code 设置里写 baseUrl 显式覆盖）
+ *
+ *   默认按【国内站】配置——国内开发者绝大多数是 minimaxi.com 账号。
+ *   国际站用户请设 MINI_CODER_BASE_URL=https://api.minimax.io/v1
  */
-export const PROVIDER_CONFIGS: Record<ProviderName, ProviderConfig> = {
-  minimax: {
-    // 默认按【国内站】配置——国内开发者绝大多数是 minimaxi.com 账号。
-    // 国际站用户请设 MINI_CODER_BASE_URL=https://api.minimax.io/v1
-    baseUrl: 'https://api.minimaxi.com/v1',
-    defaultModel: 'MiniMax-M3',
-  },
-  deepseek: {
-    baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-chat',
-  },
-  openai: {
-    baseUrl: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
-  },
-  ollama: {
-    baseUrl: 'http://localhost:11434/v1',
-    defaultModel: 'qwen2.5-coder:7b',
-  },
-};
+export const PROVIDER_CONFIGS: Record<ProviderName, ProviderConfig> = providerDefaults;
+
+/**
+ * provider 名单直接从真相源推导，不手写第二份
+ *
+ *   加一个 provider = 在 src/providers.json 里加一条，下游代码自动跟着变；
+ *   package.json 的 enum 由 checkProject.js 的 checkProviderEnum 守卫盯着。
+ */
+export type ProviderName = keyof typeof providerDefaults;
 
 /**
  * 合法 provider 名单 —— 从 PROVIDER_CONFIGS 的 key 推导，不手写第二份

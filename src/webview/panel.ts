@@ -114,8 +114,13 @@ export class ChatPanel {
     // ⭐ 启动就绪探针：5 秒内收不到 'ready' 就说明前端脚本没跑起来（多半是 CSP 拦截）
     this._armReadyProbe();
 
-    // 接收 Webview 消息
-    this._panel.webview.onDidReceiveMessage((msg) => this._handleMessage(msg));
+    // 接收 Webview 消息（⚠️ 必须 catch：async 的 Promise 没人接时抛错
+    //   = unhandled rejection，VS Code 不会显示它，用户只看到"点了没反应"）
+    this._panel.webview.onDidReceiveMessage((msg) =>
+      void this._handleMessage(msg).catch((e) =>
+        logError(`处理 Webview 消息失败：${e instanceof Error ? e.message : String(e)}`),
+      ),
+    );
 
     // 面板关闭时清理
     this._panel.onDidDispose(() => this._dispose(), null, []);

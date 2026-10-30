@@ -73,21 +73,36 @@ function listFiles(dir, out = []) {
 /* ═══════════════════════════════════════════════════════════════
  * 1. provider 名单同步
  *
- * 单一真相源是 src/config.ts 的 PROVIDER_CONFIGS；
- * package.json 的 enum 是它的【投影】，必须完全一致。
+ * 单一真相源是 src/providers.json；
+ * package.json 的 enum、src/config.ts 的 PROVIDER_CONFIGS 都是它的【投影】，
+ * 必须完全一致。
  * ═══════════════════════════════════════════════════════════════ */
 function checkProviderEnum() {
   const CHECK = 'provider-enum';
   const pkg = readJson('package.json');
-  const cfg = readText('src/config.ts');
 
-  // 从 PROVIDER_CONFIGS 对象体里抠出 key
-  const m = cfg.match(/PROVIDER_CONFIGS[^=]*=\s*\{([\s\S]*?)\n\};/);
-  if (!m) {
-    err(CHECK, '在 src/config.ts 里找不到 PROVIDER_CONFIGS 定义（格式变了？）');
+  // ── 真相源：src/providers.json ──
+  let srcKeys;
+  try {
+    srcKeys = Object.keys(readJson('src/providers.json'));
+  } catch (e) {
+    err(CHECK, `读不了 src/providers.json（真相源）：${e && e.message ? e.message : e}`);
     return;
   }
-  const srcKeys = [...m[1].matchAll(/^\s{2}([A-Za-z0-9_]+):\s*\{/gm)].map((x) => x[1]);
+  if (srcKeys.length === 0) {
+    err(CHECK, 'src/providers.json 里一个 provider 都没有');
+    return;
+  }
+
+  // ── src/config.ts 必须真的从真相源读（否则"单一真相源"是假的）──
+  const cfg = readText('src/config.ts');
+  if (!/import\s+providerDefaults\s+from\s+'\.\/providers\.json'/.test(cfg)) {
+    err(
+      CHECK,
+      'src/config.ts 里没有 `import providerDefaults from \'./providers.json\'`。' +
+        '→ provider 默认配置又变成"抄了一份"，改一处忘三处就会静默失效。',
+    );
+  }
 
   const props = pkg.contributes?.configuration?.properties ?? {};
   const providerProp = props['mini-coder.provider'];
@@ -104,7 +119,7 @@ function checkProviderEnum() {
     if (!pkgSet.has(k)) {
       err(
         CHECK,
-        `src/config.ts 的 PROVIDER_CONFIGS 里有 "${k}"，但 package.json 的 enum 里没有。` +
+        `src/providers.json 里有 "${k}"，但 package.json 的 enum 里没有。` +
           `→ 用户在设置界面选不到它 / 或者选了会被静默丢弃。`,
       );
     }
@@ -113,7 +128,7 @@ function checkProviderEnum() {
     if (!srcSet.has(k)) {
       err(
         CHECK,
-        `⭐ package.json 的 enum 里有 "${k}"，但 src/config.ts 里【没有实现】。` +
+        `⭐ package.json 的 enum 里有 "${k}"，但 src/providers.json 里【没有实现】。` +
           `→ 用户选了它会被静默丢弃并回落到默认 provider —— 这就是 2026-10-22 修过的那个 bug。`,
       );
     }
@@ -863,6 +878,109 @@ function checkVscodeApiUsage() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+ * 14. 文档里声称的数字必须和实测一致
+ *
+ * ⭐ 这一项补上了一个【声称存在但从未实现】的守卫。
+ *
+ *   scripts/stats.js 的文件头里写着：
+ *     "scripts/checkProject.js 的 checkDocNumbers 会拿它去比对各文档"
+ *   但 checkDocNumbers 从来没被写过 —— 也就是说
+ *   "数字权威源"这件事一直是【只有源、没有对照】。
+ *
+ *   后果：README 写 93 个源文件、实际 92 个，永远没人知道。
+ *   文档不会报错、测试不会失败、git 不会拦你。
+ *   等面试官打开两个页面一对照，就只剩"数据不实"四个字了。
+ *
+ *   判定逻辑全在 scripts/docNumbers.js（纯函数，可单测）：
+ *     · 数字怎么抠（带上下文锚点，不会把 ¥2.545 当成行数）
+ *     · 哪些数字要放过（历史快照 / 设计目标 / 举例说明 / 实验记录）
+ * ═══════════════════════════════════════════════════════════════ */
+function checkDocNumbers() {
+  const CHECK = 'doc-numbers';
+
+  /* ── ① 实测值：唯一真相源 scripts/stats.js ── */
+  let stats;
+  try {
+    const { execSync } = require('child_process');
+    stats = JSON.parse(
+      execSync('node scripts/stats.js --json', {
+        cwd: ROOT,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  } catch (e) {
+    err(CHECK, `跑不了 scripts/stats.js --json：${e && e.message ? e.message : e}`);
+    return;
+  }
+
+  /* ── ② 用例数要真跑一遍 vitest 才有 —— 读缓存 ──
+   *
+   *   缓存由 `npm test` / `npm run stats:test` 生成。
+   *   没有缓存就【跳过这一项】（而不是拿一个猜的数去报错）。
+   */
+  const cachePath = path.join(ROOT, '.tmp', 'vitest-stats.json');
+  if (fs.existsSync(cachePath)) {
+    try {
+      const j = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      stats.testCases = {
+        total: j.numTotalTests,
+        passed: j.numPassedTests,
+        failed: j.numFailedTests,
+        suites: j.numTotalTestSuites,
+        files: Array.isArray(j.testResults) ? j.testResults.length : null,
+      };
+      // 缓存过期 = 测试文件比缓存新 → 数字可能是旧的，只能提醒不能报错
+      const cacheMtime = fs.statSync(cachePath).mtimeMs;
+      let newest = 0;
+      for (const f of listFiles(path.join(SRC, '__tests__'))) {
+        if (!f.endsWith('.ts')) continue;
+        newest = Math.max(newest, fs.statSync(f).mtimeMs);
+      }
+      if (newest > cacheMtime) {
+        warn(
+          CHECK,
+          '用例数缓存（.tmp/vitest-stats.json）比测试文件旧 —— ' +
+            '这一项可能用了过期数字。先跑 `npm test` 重新生成缓存。',
+        );
+      }
+    } catch (e) {
+      warn(CHECK, `读不了用例数缓存 .tmp/vitest-stats.json：${e && e.message ? e.message : e}`);
+    }
+  }
+
+  /* ── ③ 逐条比对 ── */
+  let compareDocNumbers;
+  let readDocs;
+  try {
+    ({ compareDocNumbers, readDocs } = require('./docNumbers'));
+  } catch (e) {
+    err(CHECK, `加载 scripts/docNumbers.js 失败：${e && e.message ? e.message : e}`);
+    return;
+  }
+
+  const docs = readDocs(ROOT);
+  const mismatches = compareDocNumbers(stats, docs);
+
+  for (const m of mismatches) {
+    err(
+      CHECK,
+      `${m.doc}:${m.line} 声称「${m.label}」是 ${m.claimed}，实测是 ${m.expected}。\n` +
+        `        ${m.snippet}\n` +
+        `        → 改文档（别改代码，除非你确认代码才是错的那一边）。` +
+        `权威值：node scripts/stats.js`,
+    );
+  }
+
+  if (!mismatches.length) {
+    note(CHECK, `文档数字与实测一致（核对了 ${docs.length} 份文档 / ${Object.keys(require('./docNumbers').METRICS).length} 个指标）`);
+  }
+  if (!stats.testCases) {
+    note(CHECK, '用例数未核对（缺 .tmp/vitest-stats.json 缓存，跑一次 `npm test` 就会生成）');
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 function main() {
@@ -880,6 +998,7 @@ function main() {
     checkEvalBadge,
     checkWebviewGuard,
     checkVscodeApiUsage,
+    checkDocNumbers,
   ];
 
   for (const c of checks) {
@@ -907,4 +1026,6 @@ function main() {
   process.exit(1);
 }
 
-main();
+module.exports = { checks: [checkProviderEnum, checkToolRegistry, checkMcpNaming, checkFileSize, checkVscodeignore, checkEvalOracles, checkNoSecrets, checkNoDrift, checkWorkflowContexts, checkReportIsolation, checkEvalBadge, checkWebviewGuard, checkVscodeApiUsage, checkDocNumbers] };
+
+if (require.main === module) main();

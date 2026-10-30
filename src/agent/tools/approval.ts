@@ -39,7 +39,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ToolMeta } from './meta';
+import { ToolMeta, readOnlyMeta } from './meta';
 import { FileDiff, renderUnifiedDiff, renderCompactPreview, summarizeDiffs } from '../../util/diff';
 
 interface VscodeLike {
@@ -194,7 +194,20 @@ function denyBecause(t: ApprovalTier, toolName: string): ApprovalDecision {
  */
 export async function approveToolCall(req: {
   toolName: string;
-  meta: ToolMeta;
+  /**
+   * 工具元数据 —— 可以不传
+   *
+   * ⚠️ 为什么必须兜底（2026-10-30 修）：
+   *   Tool 接口里 `meta` 本来就是【可选】的（`readonly meta?: ToolMeta`），
+   *   而调用方传的是 `this.meta` —— 一个没声明 meta 的工具传进来就是 undefined。
+   *   原来这里直接 `meta.readOnly`，一读就抛
+   *   "Cannot read properties of undefined (reading 'readOnly')"，
+   *   而且是在【权限判定】这一步抛的 —— 工具还没开始干活就炸了。
+   *
+   *   兜底语义和 Tool 接口的注释一致：没声明 meta → 按【只读】处理。
+   *   理由是保守：新工具没显式声明时，不该被当成"可以随便改你的代码"。
+   */
+  meta?: ToolMeta;
   /** 给用户看的摘要（一句话说清要干什么） */
   summary: string;
   /** exec 类工具传原始命令，用于高危特征检测 */
@@ -219,7 +232,8 @@ export async function approveToolCall(req: {
    */
   preview?: FileDiff[];
 }): Promise<ApprovalDecision> {
-  const { toolName, meta, summary, command, lowRisk, preview } = req;
+  const { toolName, summary, command, lowRisk, preview } = req;
+  const meta = req.meta ?? readOnlyMeta();
 
   // 逃生舱优先：非交互环境一律放行
   if (nonInteractive) return OK();

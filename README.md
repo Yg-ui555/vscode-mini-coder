@@ -285,7 +285,7 @@ npm run eval -- --ablate grep,run_shell
 所以把**同一套 AgentLoop + 同一套工具**指向一个真实项目跑了一遍：
 
 ```bash
-npm run audit -- "D:\wxu\wxu-multimodal-smart-agent"
+npm run audit -- "<被审项目的绝对路径>"
 ```
 
 被审的是一个真实的中型 Python 项目（RAG + OCR + YOLO + FastAPI，含 `venv311`/`venv_old`
@@ -354,7 +354,7 @@ npm run audit -- "D:\wxu\wxu-multimodal-smart-agent"
 在真实项目上执行一份任务书：
 
 ```bash
-npm run audit -- "D:\wxu\wxu-multimodal-smart-agent" --task scripts/example-task.md
+npm run audit -- "<被审项目的绝对路径>" --task scripts/example-task.md
 ```
 
 任务书里写清楚三件事：**改哪几处（精确到文件行号）+ 禁改清单 + 验收标准**。
@@ -397,7 +397,7 @@ npm run audit -- "D:\wxu\wxu-multimodal-smart-agent" --task scripts/example-task
 | **技能包渐进加载** | ✅ | ✅ | ✅ |
 | **重复调用检测** | ✅ 四重校验 + 写后失效 | ❌ | ✅ |
 | **并行工具调用** | ✅ 只读并行/写串行 | ✅ | ✅ |
-| **MCP 客户端** | ✅ stdio（7 源文件 + 36 测试） | ✅ 整个 crate | ✅ 2.5k 行 |
+| **MCP 客户端** | ✅ stdio（6 源文件 + 36 测试） | ✅ 整个 crate | ✅ 2.5k 行 |
 | **中文 commit / 错题本** | ✅ | ❌ | ❌ |
 
 > 对比的三个项目都是各自赛道的标杆（goose 是 Block 的工业级 agent，
@@ -516,7 +516,7 @@ Hook 机制把它改成 **4 个生命周期点 + 声明式配置**：
 2026 年 agent 岗面试的必问项 —— goose 有 `goose-mcp` 整个 crate，
 nanobot 有 2500 行 MCP 客户端。
 
-本项目实现了 **stdio 传输**（本地进程），7 个源文件 + 36 个单元测试。
+本项目实现了 **stdio 传输**（本地进程），6 个源文件 + 36 个单元测试。
 
 ### 怎么用
 
@@ -572,7 +572,7 @@ MCP 的坑**全是静默失败** —— 不报错，只是让 AI 偶尔传错参
 
 > 架构上不需要改任何东西 —— 因为 `registry.schemas` 是**每轮实时计算**的，
 > MCP 服务器在运行时吐出的工具，下一轮 LLM 调用自动就带上了。
-> 这也是为什么本项目的 MCP 接入只花了 4 个源文件。
+> 这也是为什么本项目的 MCP 接入只花了 6 个源文件。
 
 ---
 
@@ -657,7 +657,7 @@ VS Code 插件最恶心的故障是「**webview 一片空白**」——
 
 ```
 [INFO] 生效配置：provider=deepseek（来自设置界面） · model=deepseek-chat · baseUrl=https://api.deepseek.com/v1
-[INFO] API Key：已就绪（长度 35，来源 .env（d:\Projects\vscode-mini-coder\.env））
+[INFO] API Key：已就绪（长度 35，来源 .env（<项目根目录>\.env））
 [INFO] API 连通性：✅ key 有效、余额充足、模型 deepseek-chat 可用（HTTP 200）
 ```
 
@@ -765,7 +765,7 @@ src/
 npm install
 npm run compile
 npm run build:webview
-npm test                    # 622 个用例
+npm test                    # 638 个用例
 npm run check               # 架构守卫（工具注册表同步 / 文件行数上限 / 每题必有 oracle …）
 npm run check:package       # 打包守卫（VSIX 里不该有的东西）
 npm run check:api           # API 连通性自检（真打一次接口，给结论 + 下一步）

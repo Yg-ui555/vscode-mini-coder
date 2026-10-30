@@ -5,10 +5,10 @@
 ## 0. 前置检查（30 秒）
 
 ```bash
-cd D:/projects/vscode-mini-coder
+cd <项目根目录>
 npm run compile         # 应该 tsc 干净通过
 npm run build:webview   # 应该 vite build 成功
-npm test                # 应该 225/225 全绿
+npm test                # 应该 638/638 全绿
 ```
 
 如果任何一步失败，先解决再按 F5。
@@ -16,7 +16,7 @@ npm test                # 应该 225/225 全绿
 ## 1. VS Code 打开项目
 
 ```bash
-code D:/projects/vscode-mini-coder
+code <项目根目录>
 ```
 
 打开后确认右下角有这些目录：
@@ -57,7 +57,7 @@ code D:/projects/vscode-mini-coder
 
 应该看到：
 - 右侧弹出一个 Webview 面板
-- 空状态显示欢迎语 + 4 个示例任务
+- 空状态显示欢迎语 + 3 个示例任务
 - 底部输入框 placeholder 含 "/test /commit /notes /solve"
 
 **验证**：在输入框输入 `/test`，回车。看到 `/test` 跑项目测试。
@@ -90,7 +90,7 @@ def test_pass():
 ### 5.3 测试中文 commit 特色
 
 ```bash
-cd D:/projects/vscode-mini-coder
+cd <项目根目录>
 echo "// test" >> src/test.txt
 ```
 

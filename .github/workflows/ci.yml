@@ -130,8 +130,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run compile
-      - name: Project self-check
-        run: npm run check
 
       # ⭐ stats.js 是"数字权威源" —— README、简历、术语表里的每个数字都从它出。
       #
@@ -141,8 +139,17 @@ jobs:
       #     数字权威源一旦不可信，"文档数字和代码对不上"这种慢性病就没人兜底了。
       #
       #   它跑得很快（只读文件、不调 LLM），失败就是真失败。
+      #
+      #   ⚠️ 用 stats:test 而不是 stats：
+      #     带 --test 会跑一遍 vitest，并把用例数写进 .tmp/vitest-stats.json。
+      #     checkDocNumbers 靠这个缓存核对"文档里声称的用例数"
+      #     （用例数是最容易漂的一个数：加一个测试文件它就变了）。
+      #     所以顺序必须是：先出缓存 → 再核对。
       - name: Stats (single source of truth for the numbers)
-        run: npm run stats
+        run: npm run stats:test
+
+      - name: Project self-check
+        run: npm run check
 
   # ───────────────────────────────────────────────────────────
   # Job 3：评测冒烟
